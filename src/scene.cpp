@@ -50,7 +50,45 @@ void Scene::loadFromJSON(const std::string& jsonName)
         else if (p["TYPE"] == "Specular")
         {
             const auto& col = p["RGB"];
+            newMaterial.specular.color = glm::vec3(col[0], col[1], col[2]);
+            newMaterial.hasReflective = 1.0f;
+            newMaterial.color = glm::vec3(0.0f);
+
+            // Read roughness if provided, default to 0.0f
+            if (p.contains("ROUGHNESS")) {
+                newMaterial.roughness = p["ROUGHNESS"];
+            } else {
+                newMaterial.roughness = 0.0f;
+            }
+        }
+        else if (p["TYPE"] == "Refractive")
+        {
+            const auto& col = p["RGB"];
             newMaterial.color = glm::vec3(col[0], col[1], col[2]);
+            newMaterial.hasRefractive = 1.0f;
+
+            // check if IOR exists, otherwise set a default
+            if (p.contains("IOR")) {
+                newMaterial.indexOfRefraction = p["IOR"];
+            } else {
+                newMaterial.indexOfRefraction = 1.0f;
+            }
+
+            // specular reflection for refractive materials
+            if (p.contains("SPECULAR_COLOR")) {
+                const auto& specCol = p["SPECULAR_COLOR"];
+                newMaterial.specular.color = glm::vec3(specCol[0], specCol[1], specCol[2]);
+                newMaterial.hasReflective = 1.0f;
+            } else {
+                newMaterial.specular.color = glm::vec3(1.0f);
+            }
+
+            // Read roughness if provided, default to 0.0f
+            if (p.contains("ROUGHNESS")) {
+                newMaterial.roughness = p["ROUGHNESS"];
+            } else {
+                newMaterial.roughness = 0.0f;
+            }
         }
         MatNameToID[name] = materials.size();
         materials.emplace_back(newMaterial);
@@ -97,6 +135,18 @@ void Scene::loadFromJSON(const std::string& jsonName)
     camera.position = glm::vec3(pos[0], pos[1], pos[2]);
     camera.lookAt = glm::vec3(lookat[0], lookat[1], lookat[2]);
     camera.up = glm::vec3(up[0], up[1], up[2]);
+
+    if (cameraData.contains("FOCALDISTANCE")) {
+        camera.focalDistance = cameraData["FOCALDISTANCE"];
+    } else {
+        camera.focalDistance = 1.0f;
+    }
+
+    if (cameraData.contains("APERTURE")) {
+        camera.aperture = cameraData["APERTURE"];
+    } else {
+        camera.aperture = 0.0f;
+    }
 
     //calculate fov based on resolution
     float yscaled = tan(fovy * (PI / 180));

@@ -6,6 +6,7 @@
 #include <thrust/execution_policy.h>
 #include <thrust/random.h>
 #include <thrust/remove.h>
+#include <thrust/partition.h>
 
 #include "sceneStructs.h"
 #include "scene.h"
@@ -16,6 +17,14 @@
 #include "interactions.h"
 
 #define ERRORCHECK 1
+
+#ifndef USE_SORTMATERIAL
+#define SORTMATERIAL 1
+#endif
+
+#ifndef USE_RUSSIAN_ROULETTE
+#define USE_RUSSIAN_ROULETTE 1
+#endif
 
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 #define checkCUDAError(msg) checkCUDAErrorFn(msg, FILENAME, __LINE__)
@@ -49,7 +58,7 @@ thrust::default_random_engine makeSeededRandomEngine(int iter, int index, int de
     return thrust::default_random_engine(h);
 }
 
-//Kernel that writes the image to the OpenGL PBO directly.
+// Kernel that writes the image to the OpenGL PBO directly.
 __global__ void sendImageToPBO(uchar4* pbo, glm::ivec2 resolution, int iter, glm::vec3* image)
 {
     int x = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -73,6 +82,25 @@ __global__ void sendImageToPBO(uchar4* pbo, glm::ivec2 resolution, int iter, glm
     }
 }
 
+// implement SampleUniformDiskConcentric from PBRT
+__host__ __device__ glm::vec2 sampleUniformDiskConcentric(glm::vec2 u) {
+    // Map u to [-1,1]^2
+    glm::vec2 uOffset = 2.0f * u - glm::vec2(1.0f);
+    if (uOffset.x == 0 && uOffset.y == 0)
+        return glm::vec2(0.0f);
+
+    float theta, r;
+    if (abs(uOffset.x) > abs(uOffset.y)) {
+        r = uOffset.x;
+        theta = (PI / 4.0f) * (uOffset.y / uOffset.x);
+    } else {
+        r = uOffset.y;
+        theta = (PI / 2.0f) - (PI / 4.0f) * (uOffset.x / uOffset.y);
+    }
+
+    return r * glm::vec2(cos(theta), sin(theta));
+}
+
 static Scene* hst_scene = NULL;
 static GuiDataContainer* guiData = NULL;
 static glm::vec3* dev_image = NULL;
@@ -80,8 +108,10 @@ static Geom* dev_geoms = NULL;
 static Material* dev_materials = NULL;
 static PathSegment* dev_paths = NULL;
 static ShadeableIntersection* dev_intersections = NULL;
-// TODO: static variables for device memory, any extra info you need, etc
-// ...
+bool sortMaterial = SORTMATERIAL == 1;
+
+bool useRussianRoulette = USE_RUSSIAN_ROULETTE == 1;
+const float MIN_THROUGHPUT = 0.1f;
 
 void InitDataContainer(GuiDataContainer* imGuiData)
 {
@@ -146,14 +176,37 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
         segment.ray.origin = cam.position;
         segment.color = glm::vec3(1.0f, 1.0f, 1.0f);
 
-        // TODO: implement antialiasing by jittering the ray
-        segment.ray.direction = glm::normalize(cam.view
-            - cam.right * cam.pixelLength.x * ((float)x - (float)cam.resolution.x * 0.5f)
-            - cam.up * cam.pixelLength.y * ((float)y - (float)cam.resolution.y * 0.5f)
-        );
-
         segment.pixelIndex = index;
         segment.remainingBounces = traceDepth;
+        segment.insideObject = false;
+
+        // Stochastic Antialiasing
+        thrust::default_random_engine rng = makeSeededRandomEngine(iter, index, 0);
+        thrust::uniform_real_distribution<float> u01(0, 1);
+        float jitterX = u01(rng) - 0.5f;
+        float jitterY = u01(rng) - 0.5f;
+
+        glm::vec3 rayDirection = glm::normalize(cam.view
+           - cam.right * cam.pixelLength.x * ((float)x + jitterX - (float)cam.resolution.x * 0.5f)
+           - cam.up * cam.pixelLength.y * ((float)y + jitterY - (float)cam.resolution.y * 0.5f)
+        );
+
+        // Apply depth of field
+        if (cam.aperture > 0.0f) {
+            // Sample point on the lens aperture using concentric mapping
+            glm::vec2 pLens = cam.aperture * sampleUniformDiskConcentric(glm::vec2(u01(rng), u01(rng)));
+            glm::vec3 lensOffset = pLens.x * cam.right + pLens.y * cam.up;
+
+            // Compute focal point
+            float t = cam.focalDistance / glm::dot(rayDirection, glm::normalize(cam.view));
+            glm::vec3 focalPoint = cam.position + rayDirection * t;
+
+            // Adjust ray origin and direction
+            segment.ray.origin = cam.position + lensOffset;
+            segment.ray.direction = glm::normalize(focalPoint - segment.ray.origin);
+        } else {
+            segment.ray.direction = rayDirection;
+        }
     }
 }
 
@@ -235,48 +288,76 @@ __global__ void computeIntersections(
 // Note that this shader does NOT do a BSDF evaluation!
 // Your shaders should handle that - this can allow techniques such as
 // bump mapping.
-__global__ void shadeFakeMaterial(
+__global__ void shadeMaterial(
     int iter,
     int num_paths,
     ShadeableIntersection* shadeableIntersections,
     PathSegment* pathSegments,
-    Material* materials)
+    Material* materials,
+    bool useRussianRoulette,
+    float MIN_THROUGHPUT)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx < num_paths)
-    {
-        ShadeableIntersection intersection = shadeableIntersections[idx];
-        if (intersection.t > 0.0f) // if the intersection exists...
-        {
-          // Set up the RNG
-          // LOOK: this is how you use thrust's RNG! Please look at
-          // makeSeededRandomEngine as well.
-            thrust::default_random_engine rng = makeSeededRandomEngine(iter, idx, 0);
-            thrust::uniform_real_distribution<float> u01(0, 1);
+    if (idx >= num_paths) return;
 
-            Material material = materials[intersection.materialId];
-            glm::vec3 materialColor = material.color;
+    // Preload frequently accessed variables into registers
+    PathSegment& segment = pathSegments[idx];
+    int remainingBounces = segment.remainingBounces;
+    if (remainingBounces <= 0) return;
 
-            // If the material indicates that the object was a light, "light" the ray
-            if (material.emittance > 0.0f) {
-                pathSegments[idx].color *= (materialColor * material.emittance);
+    ShadeableIntersection intersection = shadeableIntersections[idx];
+
+    if (intersection.t > 0.0f) { // If the intersection exists...
+        // Set up RNG
+        thrust::default_random_engine rng = makeSeededRandomEngine(iter, idx, remainingBounces);
+
+        // Preload material into registers (minimize global memory accesses)
+        Material material = materials[intersection.materialId];
+        glm::vec3 materialColor = material.color;
+
+        if (material.emittance > 0.0f) {
+            segment.color *= (materialColor * material.emittance);
+            segment.remainingBounces = 0;  // Terminate ray if it hits a light source
+        } else {
+            glm::vec3 intersectionPoint = segment.ray.origin + intersection.t * segment.ray.direction;
+            scatterRay(segment, intersectionPoint, intersection.surfaceNormal, material, rng);
+
+            segment.remainingBounces--;
+
+           if (segment.remainingBounces == 0) {
+               segment.color = glm::vec3(0.0f);
+           }
+
+           // Russian Roulette
+            if (useRussianRoulette && segment.remainingBounces > 0) {
+                // Compute maximum component of the color
+                float maxComponent = glm::max(segment.color.r, glm::max(segment.color.g, segment.color.b));
+
+                // Only consider terminating paths with low throughput
+                if (maxComponent < MIN_THROUGHPUT) {
+                    float q = 1.0f - maxComponent;
+
+                    // Clamp q to [0, 1]
+                    q = glm::clamp(q, 0.0f, 1.0f);
+
+                    thrust::uniform_real_distribution<float> u01(0.0f, 1.0f);
+                    float randVal = u01(rng);
+
+                    if (randVal < q) {
+                        // Terminate the path
+                        segment.color = glm::vec3(0.0f);
+                        segment.remainingBounces = 0;
+                    } else {
+                        // Survive, adjust the color to keep the estimator unbiased
+                        segment.color /= (1.0f - q);
+                    }
+                }
             }
-            // Otherwise, do some pseudo-lighting computation. This is actually more
-            // like what you would expect from shading in a rasterizer like OpenGL.
-            // TODO: replace this! you should be able to start with basically a one-liner
-            else {
-                float lightTerm = glm::dot(intersection.surfaceNormal, glm::vec3(0.0f, 1.0f, 0.0f));
-                pathSegments[idx].color *= (materialColor * lightTerm) * 0.3f + ((1.0f - intersection.t * 0.02f) * materialColor) * 0.7f;
-                pathSegments[idx].color *= u01(rng); // apply some noise because why not
-            }
-            // If there was no intersection, color the ray black.
-            // Lots of renderers use 4 channel color, RGBA, where A = alpha, often
-            // used for opacity, in which case they can indicate "no opacity".
-            // This can be useful for post-processing and image compositing.
         }
-        else {
-            pathSegments[idx].color = glm::vec3(0.0f);
-        }
+    } else {
+        // If no intersection, black out the ray
+        segment.color = glm::vec3(0.0f);
+        segment.remainingBounces = 0;
     }
 }
 
@@ -288,8 +369,40 @@ __global__ void finalGather(int nPaths, glm::vec3* image, PathSegment* iteration
     if (index < nPaths)
     {
         PathSegment iterationPath = iterationPaths[index];
-        image[iterationPath.pixelIndex] += iterationPath.color;
+
+        // Clamp the color
+        glm::vec3 color = iterationPath.color;
+        float maxColorValue = 10.0f;
+        color = glm::min(color, glm::vec3(maxColorValue));
+
+        image[iterationPath.pixelIndex] += color;
     }
+}
+
+struct IsActive {
+    __host__ __device__
+    bool operator()(const PathSegment& path) {
+        return path.remainingBounces != 0;
+    }
+};
+
+struct CompareByMaterial {
+    __host__ __device__
+    bool operator()(const ShadeableIntersection& a, const ShadeableIntersection& b) const {
+        return a.materialId < b.materialId;
+    }
+};
+
+void sortByMaterial(int num_paths) {
+    // Use thrust to sort the paths by their material ID.
+
+    thrust::sort_by_key(
+            thrust::device,                   // Execution policy for device
+            dev_intersections,                // Raw device pointer for material keys
+            dev_intersections + num_paths,    // End of material keys
+            dev_paths,                        // Raw device pointer for path segments
+            CompareByMaterial()               // Custom comparator to compare material IDs
+    );
 }
 
 /**
@@ -309,7 +422,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
         (cam.resolution.y + blockSize2d.y - 1) / blockSize2d.y);
 
     // 1D block for path tracing
-    const int blockSize1d = 128;
+    const int blockSize1d = 256;
 
     ///////////////////////////////////////////////////////////////////////////
 
@@ -379,16 +492,26 @@ void pathtrace(uchar4* pbo, int frame, int iter)
         // Start off with just a big kernel that handles all the different
         // materials you have in the scenefile.
         // TODO: compare between directly shading the path segments and shading
-        // path segments that have been reshuffled to be contiguous in memory.
+        //  path segments that have been reshuffled to be contiguous in memory.
 
-        shadeFakeMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(
+        if (sortMaterial) {
+            sortByMaterial(num_paths);
+        }
+
+        shadeMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(
             iter,
             num_paths,
             dev_intersections,
             dev_paths,
-            dev_materials
-        );
-        iterationComplete = true; // TODO: should be based off stream compaction results.
+            dev_materials,
+            useRussianRoulette,
+            MIN_THROUGHPUT);
+
+        // Stream compaction
+        dev_path_end = thrust::partition(thrust::device, dev_paths, dev_path_end, IsActive());
+        num_paths = dev_path_end - dev_paths;
+
+        iterationComplete = depth > traceDepth || num_paths == 0;
 
         if (guiData != NULL)
         {
@@ -398,7 +521,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
 
     // Assemble this iteration and apply it to the image
     dim3 numBlocksPixels = (pixelcount + blockSize1d - 1) / blockSize1d;
-    finalGather<<<numBlocksPixels, blockSize1d>>>(num_paths, dev_image, dev_paths);
+    finalGather<<<numBlocksPixels, blockSize1d>>>(pixelcount, dev_image, dev_paths);
 
     ///////////////////////////////////////////////////////////////////////////
 

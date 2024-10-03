@@ -43,6 +43,7 @@ struct Material
     float hasRefractive;
     float indexOfRefraction;
     float emittance;
+    float roughness;
 };
 
 struct Camera
@@ -55,6 +56,10 @@ struct Camera
     glm::vec3 right;
     glm::vec2 fov;
     glm::vec2 pixelLength;
+
+    // depth of field
+    float focalDistance;
+    float aperture;
 };
 
 struct RenderState
@@ -72,6 +77,7 @@ struct PathSegment
     glm::vec3 color;
     int pixelIndex;
     int remainingBounces;
+    bool insideObject;
 };
 
 // Use with a corresponding PathSegment to do:
