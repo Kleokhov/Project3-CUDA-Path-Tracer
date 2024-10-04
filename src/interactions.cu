@@ -46,7 +46,7 @@ __host__ __device__ glm::vec3 sampleHemisphereAroundDirection(
         thrust::default_random_engine& rng)
 {
     // Map roughness to cone angle (in radians)
-    float coneAngle = roughness * (PI / 2.0f); // Roughness from 0 to 1
+    float coneAngle = roughness * (PI / 2.0f);
 
     // Uniformly sample the hemisphere around the direction within the cone angle
     thrust::uniform_real_distribution<float> u01(0, 1);
@@ -91,6 +91,9 @@ __host__ __device__ void handleReflection(
     if (m.roughness == 0.0f) {
         // Perfect mirror reflection
         newRayDirection = perfectReflection;
+    } else if (m.roughness == 1.0f) {
+        // Perfect diffuse reflection
+        newRayDirection = calculateRandomDirectionInHemisphere(normal, rng);
     } else {
         // Sample around the reflection direction
         newRayDirection = sampleHemisphereAroundDirection(perfectReflection, m.roughness, rng);

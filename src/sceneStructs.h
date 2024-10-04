@@ -10,7 +10,8 @@
 enum GeomType
 {
     SPHERE,
-    CUBE
+    CUBE,
+    MESH
 };
 
 struct Ray
@@ -29,6 +30,12 @@ struct Geom
     glm::mat4 transform;
     glm::mat4 inverseTransform;
     glm::mat4 invTranspose;
+
+    // mesh
+    int meshStart;
+    int meshCount;
+    glm::vec3 minBounds;
+    glm::vec3 maxBounds;
 };
 
 struct Material
@@ -85,7 +92,15 @@ struct PathSegment
 // 2) BSDF evaluation: generate a new ray
 struct ShadeableIntersection
 {
-  float t;
-  glm::vec3 surfaceNormal;
-  int materialId;
+    float t;
+    glm::vec3 surfaceNormal;
+    int materialId;
+    glm::vec2 uv;
+};
+
+struct Triangle {
+    int v[3];
+    int n[3];
+    int uv[3];
+    int materialId;
 };

@@ -5,7 +5,6 @@
 #include <cmath>
 #include <thrust/execution_policy.h>
 #include <thrust/random.h>
-#include <thrust/remove.h>
 #include <thrust/partition.h>
 
 #include "sceneStructs.h"
@@ -18,13 +17,16 @@
 
 #define ERRORCHECK 1
 
-#ifndef USE_SORTMATERIAL
+// sort by material
 #define SORTMATERIAL 1
-#endif
 
-#ifndef USE_RUSSIAN_ROULETTE
-#define USE_RUSSIAN_ROULETTE 1
-#endif
+// Russian roulette
+#define RUSSIAN_ROULETTE 1
+#define MIN_BOUNCES 3
+#define MIN_SURVIVAL_PROB 0.05f
+
+// AABB Bounding test
+#define USE_AABB 1
 
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 #define checkCUDAError(msg) checkCUDAErrorFn(msg, FILENAME, __LINE__)
@@ -108,10 +110,11 @@ static Geom* dev_geoms = NULL;
 static Material* dev_materials = NULL;
 static PathSegment* dev_paths = NULL;
 static ShadeableIntersection* dev_intersections = NULL;
-bool sortMaterial = SORTMATERIAL == 1;
 
-bool useRussianRoulette = USE_RUSSIAN_ROULETTE == 1;
-const float MIN_THROUGHPUT = 0.1f;
+static glm::vec3* dev_vertices = NULL;
+static glm::vec3* dev_normals = NULL;
+static glm::vec2* dev_uvs = NULL;
+static Triangle* dev_triangles = NULL;
 
 void InitDataContainer(GuiDataContainer* imGuiData)
 {
@@ -139,7 +142,17 @@ void pathtraceInit(Scene* scene)
     cudaMalloc(&dev_intersections, pixelcount * sizeof(ShadeableIntersection));
     cudaMemset(dev_intersections, 0, pixelcount * sizeof(ShadeableIntersection));
 
-    // TODO: initialize any extra device memeory you need
+    cudaMalloc(&dev_vertices, scene->vertices.size() * sizeof(glm::vec3));
+    cudaMemcpy(dev_vertices, scene->vertices.data(), scene->vertices.size() * sizeof(glm::vec3), cudaMemcpyHostToDevice);
+
+    cudaMalloc(&dev_normals, scene->normals.size() * sizeof(glm::vec3));
+    cudaMemcpy(dev_normals, scene->normals.data(), scene->normals.size() * sizeof(glm::vec3), cudaMemcpyHostToDevice);
+
+    cudaMalloc(&dev_uvs, scene->uvs.size() * sizeof(glm::vec2));
+    cudaMemcpy(dev_uvs, scene->uvs.data(), scene->uvs.size() * sizeof(glm::vec2), cudaMemcpyHostToDevice);
+
+    cudaMalloc(&dev_triangles, scene->triangles.size() * sizeof(Triangle));
+    cudaMemcpy(dev_triangles, scene->triangles.data(), scene->triangles.size() * sizeof(Triangle), cudaMemcpyHostToDevice);
 
     checkCUDAError("pathtraceInit");
 }
@@ -151,7 +164,11 @@ void pathtraceFree()
     cudaFree(dev_geoms);
     cudaFree(dev_materials);
     cudaFree(dev_intersections);
-    // TODO: clean up any extra device memory you created
+
+    cudaFree(dev_vertices);
+    cudaFree(dev_normals);
+    cudaFree(dev_uvs);
+    cudaFree(dev_triangles);
 
     checkCUDAError("pathtraceFree");
 }
@@ -220,7 +237,11 @@ __global__ void computeIntersections(
     PathSegment* pathSegments,
     Geom* geoms,
     int geoms_size,
-    ShadeableIntersection* intersections)
+    ShadeableIntersection* intersections,
+    glm::vec3* vertices,
+    glm::vec3* normals,
+    glm::vec2* uvs,
+    Triangle* triangles)
 {
     int path_index = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -231,15 +252,18 @@ __global__ void computeIntersections(
         float t;
         glm::vec3 intersect_point;
         glm::vec3 normal;
+        glm::vec2 uv;
         float t_min = FLT_MAX;
         int hit_geom_index = -1;
         bool outside = true;
 
         glm::vec3 tmp_intersect;
         glm::vec3 tmp_normal;
+        glm::vec2 tmp_uv;
+
+        int tmp_materialId = -1;
 
         // naive parse through global geoms
-
         for (int i = 0; i < geoms_size; i++)
         {
             Geom& geom = geoms[i];
@@ -251,8 +275,24 @@ __global__ void computeIntersections(
             else if (geom.type == SPHERE)
             {
                 t = sphereIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+            } else if (geom.type == MESH)
+            {
+                // AABB Bounding test
+                if (USE_AABB) {
+                    if (!intersectRayAABB(pathSegment.ray, geom.minBounds, geom.maxBounds)) {
+                        continue;
+                    }
+                }
+
+                t = meshIntersectionTest(geom,
+                                         pathSegment.ray,
+                                         vertices,
+                                         triangles,
+                                         tmp_intersect,
+                                         tmp_normal,
+                                         outside,
+                                         tmp_materialId);
             }
-            // TODO: add more intersection tests here... triangle? metaball? CSG?
 
             // Compute the minimum t from the intersection tests to determine what
             // scene geometry object was hit first.
@@ -262,6 +302,7 @@ __global__ void computeIntersections(
                 hit_geom_index = i;
                 intersect_point = tmp_intersect;
                 normal = tmp_normal;
+                uv = tmp_uv;
             }
         }
 
@@ -275,27 +316,17 @@ __global__ void computeIntersections(
             intersections[path_index].t = t_min;
             intersections[path_index].materialId = geoms[hit_geom_index].materialid;
             intersections[path_index].surfaceNormal = normal;
+            intersections[path_index].uv = uv;
         }
     }
 }
 
-// LOOK: "fake" shader demonstrating what you might do with the info in
-// a ShadeableIntersection, as well as how to use thrust's random number
-// generator. Observe that since the thrust random number generator basically
-// adds "noise" to the iteration, the image should start off noisy and get
-// cleaner as more iterations are computed.
-//
-// Note that this shader does NOT do a BSDF evaluation!
-// Your shaders should handle that - this can allow techniques such as
-// bump mapping.
 __global__ void shadeMaterial(
     int iter,
     int num_paths,
     ShadeableIntersection* shadeableIntersections,
     PathSegment* pathSegments,
-    Material* materials,
-    bool useRussianRoulette,
-    float MIN_THROUGHPUT)
+    Material* materials)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= num_paths) return;
@@ -309,7 +340,7 @@ __global__ void shadeMaterial(
 
     if (intersection.t > 0.0f) { // If the intersection exists...
         // Set up RNG
-        thrust::default_random_engine rng = makeSeededRandomEngine(iter, idx, remainingBounces);
+        thrust::default_random_engine rng = makeSeededRandomEngine(iter, idx, 0);
 
         // Preload material into registers (minimize global memory accesses)
         Material material = materials[intersection.materialId];
@@ -328,29 +359,25 @@ __global__ void shadeMaterial(
                segment.color = glm::vec3(0.0f);
            }
 
-           // Russian Roulette
-            if (useRussianRoulette && segment.remainingBounces > 0) {
-                // Compute maximum component of the color
-                float maxComponent = glm::max(segment.color.r, glm::max(segment.color.g, segment.color.b));
+            // Apply Russian roulette
+            if (RUSSIAN_ROULETTE && segment.remainingBounces >= MIN_BOUNCES) {
+                // Compute the maximum component of the path throughput (color)
+                float maxComponent = fmaxf(segment.color.r, fmaxf(segment.color.g, segment.color.b));
+                maxComponent = glm::clamp(maxComponent, 0.0f, 1.0f);
 
-                // Only consider terminating paths with low throughput
-                if (maxComponent < MIN_THROUGHPUT) {
-                    float q = 1.0f - maxComponent;
+                // Calculate termination probability q
+                float q = fmaxf(1.0f - maxComponent, MIN_SURVIVAL_PROB);
 
-                    // Clamp q to [0, 1]
-                    q = glm::clamp(q, 0.0f, 1.0f);
+                thrust::uniform_real_distribution<float> u01(0.0f, 1.0f);
+                float randVal = u01(rng);
 
-                    thrust::uniform_real_distribution<float> u01(0.0f, 1.0f);
-                    float randVal = u01(rng);
-
-                    if (randVal < q) {
-                        // Terminate the path
-                        segment.color = glm::vec3(0.0f);
-                        segment.remainingBounces = 0;
-                    } else {
-                        // Survive, adjust the color to keep the estimator unbiased
-                        segment.color /= (1.0f - q);
-                    }
+                if (randVal < q) {
+                    // Terminate the path
+                    segment.color = glm::vec3(0.0f);
+                    segment.remainingBounces = 0;
+                } else {
+                    // Survive
+                    segment.color /= (1.0f - q);
                 }
             }
         }
@@ -382,7 +409,7 @@ __global__ void finalGather(int nPaths, glm::vec3* image, PathSegment* iteration
 struct IsActive {
     __host__ __device__
     bool operator()(const PathSegment& path) {
-        return path.remainingBounces != 0;
+        return path.remainingBounces > 0;
     }
 };
 
@@ -479,7 +506,11 @@ void pathtrace(uchar4* pbo, int frame, int iter)
             dev_paths,
             dev_geoms,
             hst_scene->geoms.size(),
-            dev_intersections
+            dev_intersections,
+            dev_vertices,
+            dev_normals,
+            dev_uvs,
+            dev_triangles
         );
         checkCUDAError("trace one bounce");
         cudaDeviceSynchronize();
@@ -494,7 +525,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
         // TODO: compare between directly shading the path segments and shading
         //  path segments that have been reshuffled to be contiguous in memory.
 
-        if (sortMaterial) {
+        if (SORTMATERIAL) {
             sortByMaterial(num_paths);
         }
 
@@ -503,9 +534,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
             num_paths,
             dev_intersections,
             dev_paths,
-            dev_materials,
-            useRussianRoulette,
-            MIN_THROUGHPUT);
+            dev_materials);
 
         // Stream compaction
         dev_path_end = thrust::partition(thrust::device, dev_paths, dev_path_end, IsActive());
