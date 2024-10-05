@@ -88,11 +88,12 @@ __host__ __device__ bool intersectRayTriangle(
         float& v);
 
 __host__ __device__ float meshIntersectionTest(
-        const Geom& meshGeom,
+        const Geom& geom,
         const Ray& ray,
-        const glm::vec3* vertices,
-        const Triangle* triangles,
         glm::vec3& intersectionPoint,
         glm::vec3& normal,
         bool& outside,
-        int& materialId);
+        const glm::vec3* vertices,
+        const glm::vec3* normals,
+        const glm::vec2* uvs,
+        const Triangle* triangles);

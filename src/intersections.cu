@@ -150,41 +150,48 @@ __host__ __device__ bool intersectRayTriangle(
         float& u,
         float& v)
 {
-    glm::vec3 edge1 = v1 - v0;
-    glm::vec3 edge2 = v2 - v0;
-    glm::vec3 h = glm::cross(dir, edge2);
-    float a = glm::dot(edge1, h);
-    if (fabs(a) < EPSILON) return false;
+    glm::vec3 v0v1 = v1 - v0;
+    glm::vec3 v0v2 = v2 - v0;
+    glm::vec3 pvec = glm::cross(dir, v0v2);
+    float det = glm::dot(v0v1, pvec);
 
-    float f = 1.0f / a;
-    glm::vec3 s = orig - v0;
-    u = f * glm::dot(s, h);
+    // if the determinant is negative, the triangle is backfacing
+    if (det < EPSILON) return false;
+
+    // Ray and triangle are parallel if det is close to 0
+    if (fabs(det) < EPSILON) return false;
+
+    float invDet = 1.0f / det;
+
+    glm::vec3 tvec = orig - v0;
+    u = glm::dot(tvec, pvec) * invDet;
     if (u < 0.0f || u > 1.0f) return false;
 
-    glm::vec3 q = glm::cross(s, edge1);
-    v = f * glm::dot(dir, q);
+    glm::vec3 qvec = glm::cross(tvec, v0v1);
+    v = glm::dot(dir, qvec) * invDet;
     if (v < 0.0f || u + v > 1.0f) return false;
 
-    t = f * glm::dot(edge2, q);
-    if (t > EPSILON) return true;
+    t = glm::dot(v0v2, qvec) * invDet;
 
-    return false;
+    return t > EPSILON;
 }
 
 __host__ __device__ float meshIntersectionTest(
-        const Geom& meshGeom,
+        const Geom& geom,
         const Ray& ray,
-        const glm::vec3* vertices,
-        const Triangle* triangles,
         glm::vec3& intersectionPoint,
         glm::vec3& normal,
         bool& outside,
-        int& materialId) {
+        const glm::vec3* vertices,
+        const glm::vec3* normals,
+        const glm::vec2* uvs,
+        const Triangle* triangles) {
     float t_min = FLT_MAX;
     bool hit = false;
+    bool normalsExist = normals != nullptr && normals[0] != glm::vec3(0.0f);
 
     // Iterate over all triangles in the mesh
-    for (int i = meshGeom.meshStart; i < meshGeom.meshStart + meshGeom.meshCount; i++) {
+    for (int i = geom.meshStart; i < geom.meshStart + geom.meshCount; i++) {
         const Triangle &triangle = triangles[i];
 
         glm::vec3 v0 = vertices[triangle.v[0]];
@@ -198,14 +205,27 @@ __host__ __device__ float meshIntersectionTest(
                 t, u, v
         );
 
-        if (triangleHit && t > 0.0f)
+        if (triangleHit && t > EPSILON)
         {
             if (t < t_min)
             {
                 t_min = t;
                 intersectionPoint = ray.origin + t * ray.direction;
 
-                normal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
+                if (normalsExist) {
+                    // Interpolate the vertex normals using barycentric coordinates if normals exist
+                    glm::vec3 n0 = normals[triangle.n[0]];
+                    glm::vec3 n1 = normals[triangle.n[1]];
+                    glm::vec3 n2 = normals[triangle.n[2]];
+
+                    // Barycentric interpolation of normals
+                    glm::vec3 interpolatedNormal = glm::normalize((1.0f - u - v) * n0 + u * n1 + v * n2);
+
+                    normal = interpolatedNormal;
+                } else {
+                    // Compute the flat normal (if normals are missing)
+                    normal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
+                }
 
                 // Determine if the intersection is from outside
                 outside = glm::dot(ray.direction, normal) < 0.0f;
@@ -214,8 +234,6 @@ __host__ __device__ float meshIntersectionTest(
                     normal = -normal;
                 }
 
-                // Set the material ID
-                materialId = triangle.materialId;
                 hit = true;
             }
         }

@@ -314,5 +314,10 @@ int Scene::loadObj(const string &fullPath, Geom &geom) {
     }
     geom.meshCount = triangles.size() - geom.meshStart;
 
+    // for debugging, print the sizes
+    std::cout << "Vertices: " << vertices.size() << std::endl;
+    std::cout << "Normals: " << normals.size() << std::endl;
+    std::cout << "UVs: " << uvs.size() << std::endl;
+
     return 0;
 }

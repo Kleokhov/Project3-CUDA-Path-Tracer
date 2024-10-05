@@ -227,10 +227,8 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
     }
 }
 
-// TODO:
 // computeIntersections handles generating ray intersections ONLY.
 // Generating new rays is handled in your shader(s).
-// Feel free to modify the code below.
 __global__ void computeIntersections(
     int depth,
     int num_paths,
@@ -260,8 +258,7 @@ __global__ void computeIntersections(
         glm::vec3 tmp_intersect;
         glm::vec3 tmp_normal;
         glm::vec2 tmp_uv;
-
-        int tmp_materialId = -1;
+        bool tmp_outside = true;
 
         // naive parse through global geoms
         for (int i = 0; i < geoms_size; i++)
@@ -270,11 +267,11 @@ __global__ void computeIntersections(
 
             if (geom.type == CUBE)
             {
-                t = boxIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+                t = boxIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, tmp_outside);
             }
             else if (geom.type == SPHERE)
             {
-                t = sphereIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+                t = sphereIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, tmp_outside);
             } else if (geom.type == MESH)
             {
                 // AABB Bounding test
@@ -286,12 +283,13 @@ __global__ void computeIntersections(
 
                 t = meshIntersectionTest(geom,
                                          pathSegment.ray,
-                                         vertices,
-                                         triangles,
                                          tmp_intersect,
                                          tmp_normal,
-                                         outside,
-                                         tmp_materialId);
+                                         tmp_outside,
+                                         vertices,
+                                         normals,
+                                         uvs,
+                                         triangles);
             }
 
             // Compute the minimum t from the intersection tests to determine what
@@ -303,6 +301,7 @@ __global__ void computeIntersections(
                 intersect_point = tmp_intersect;
                 normal = tmp_normal;
                 uv = tmp_uv;
+                outside = tmp_outside;
             }
         }
 
@@ -317,6 +316,8 @@ __global__ void computeIntersections(
             intersections[path_index].materialId = geoms[hit_geom_index].materialid;
             intersections[path_index].surfaceNormal = normal;
             intersections[path_index].uv = uv;
+            intersections[path_index].outside = outside;
+            intersections[path_index].intersectionPoint = intersect_point;
         }
     }
 }
@@ -342,7 +343,6 @@ __global__ void shadeMaterial(
         // Set up RNG
         thrust::default_random_engine rng = makeSeededRandomEngine(iter, idx, 0);
 
-        // Preload material into registers (minimize global memory accesses)
         Material material = materials[intersection.materialId];
         glm::vec3 materialColor = material.color;
 
@@ -350,7 +350,9 @@ __global__ void shadeMaterial(
             segment.color *= (materialColor * material.emittance);
             segment.remainingBounces = 0;  // Terminate ray if it hits a light source
         } else {
-            glm::vec3 intersectionPoint = segment.ray.origin + intersection.t * segment.ray.direction;
+            glm::vec3 intersectionPoint = intersection.intersectionPoint;
+            segment.insideObject = !intersection.outside;
+
             scatterRay(segment, intersectionPoint, intersection.surfaceNormal, material, rng);
 
             segment.remainingBounces--;
@@ -421,14 +423,12 @@ struct CompareByMaterial {
 };
 
 void sortByMaterial(int num_paths) {
-    // Use thrust to sort the paths by their material ID.
-
     thrust::sort_by_key(
-            thrust::device,                   // Execution policy for device
-            dev_intersections,                // Raw device pointer for material keys
-            dev_intersections + num_paths,    // End of material keys
-            dev_paths,                        // Raw device pointer for path segments
-            CompareByMaterial()               // Custom comparator to compare material IDs
+            thrust::device,
+            dev_intersections,
+            dev_intersections + num_paths,
+            dev_paths,
+            CompareByMaterial()
     );
 }
 

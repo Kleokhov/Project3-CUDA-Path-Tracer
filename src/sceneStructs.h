@@ -96,6 +96,8 @@ struct ShadeableIntersection
     glm::vec3 surfaceNormal;
     int materialId;
     glm::vec2 uv;
+    bool outside;
+    glm::vec3 intersectionPoint;
 };
 
 struct Triangle {
