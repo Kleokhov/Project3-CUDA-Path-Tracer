@@ -15,6 +15,12 @@ Scene::Scene(string filename)
     if (ext == ".json")
     {
         loadFromJSON(filename);
+
+        // Build BVH
+        if (triangles.size() > 0) {
+            buildBVH();
+        }
+
         return;
     }
     else
@@ -332,123 +338,118 @@ int Scene::loadObj(const string &fullPath, Geom &geom) {
     std::cout << "UVs: " << uvs.size() << std::endl;
     std::cout << "meshes: " << geom.meshCount << std::endl;
 
-    // Build BVH
-    if (geom.meshCount > 0) {
-        // Build the BVH and store the root index in the geometry
-        buildAndFlattenBVH(geom.meshStart, geom.meshCount);
-        std::cout << "Built BVH with " << bvh.size() << " nodes." << std::endl;
-        std::cout << "BVH root index: " << geom.bvhRootIndex << std::endl;
-    }
-
     return 0;
 }
 
-int Scene::buildBVHRecursive(int start, int count, int depth) {
-    BVHNode node;
-
-    // Compute the bounding box of the current set of triangles based on transformed vertices
-    for (int i = start; i < start + count; ++i) {
-        node.aabb.minBounds = glm::min(node.aabb.minBounds, triangles[i].aabb.minBounds);
-        node.aabb.maxBounds = glm::max(node.aabb.maxBounds, triangles[i].aabb.maxBounds);
+void Scene::buildBVH() {
+    /// Initialize triIdx with triangle indices
+    triIdx.resize(triangles.size());
+    for (size_t i = 0; i < triangles.size(); ++i) {
+        triIdx[i] = static_cast<int>(i);
+        const Triangle& tri = triangles[i];
+        // Compute centroid
+        glm::vec3 centroid = (vertices[tri.v[0]] + vertices[tri.v[1]] + vertices[tri.v[2]]) / 3.0f;
+        triangles[i].centroid = centroid;
     }
 
-    // determine leaf node
-    if (count == 1) {
-        node.startIndex = start;
-        node.primitiveCount = count;
-        node.leftChildIndex = -1;
-        node.rightChildIndex = -1;
-        bvh.push_back(node);
-        return bvh.size() - 1;
-    }
+    // Initialize BVH node pool
+    size_t maxNodes = 2 * triangles.size() - 1;
+    bvh.reserve(maxNodes);
+    bvh.emplace_back(); // Root node
 
-    // Compute the bounding box of triangle centroids and choose split dimension (longest axis)
-    glm::vec3 centroidMin(FLT_MAX), centroidMax(-FLT_MAX);
-    for (int i = start; i < start + count; ++i) {
-        glm::vec3 centroid = (triangles[i].aabb.minBounds + triangles[i].aabb.maxBounds) * 0.5f;
-        centroidMin = glm::min(centroidMin, centroid);
-        centroidMax = glm::max(centroidMax, centroid);
-    }
+    // Initialize root node
+    BVHNode& root = bvh[0];
+    root.firstPrim = 0;
+    root.primCount = static_cast<int>(triangles.size());
+    UpdateNodeBounds(0);
 
-    // Determine the split axis (longest extent of centroid bounds)
-    int dim = 0;  // Default to x-axis
-    glm::vec3 extent = centroidMax - centroidMin;
-    if (extent.y > extent.x && extent.y > extent.z) dim = 1;  // y-axis
-    if (extent.z > extent.x && extent.z > extent.y) dim = 2;  // z-axis
-    // store axis
-    node.axis = dim;
+    // Start subdivision
+    Subdivide(0);
 
-    // Partition primitives into two equally sized subsets along the chosen dimension
-    int mid = start + (count / 2);
-    std::nth_element(triangles.begin() + start, triangles.begin() + mid, triangles.begin() + start + count,
-                     [dim](const Triangle &a, const Triangle &b) {
-                         glm::vec3 centroidA = (a.aabb.minBounds + a.aabb.maxBounds) * 0.5f;
-                         glm::vec3 centroidB = (b.aabb.minBounds + b.aabb.maxBounds) * 0.5f;
-                         return centroidA[dim] < centroidB[dim];
-                     });
-
-    // Recursively build child nodes
-    int leftChildIndex = buildBVHRecursive(start, mid - start, depth + 1);
-    int rightChildIndex = buildBVHRecursive(mid, count - (mid - start), depth + 1);
-
-    // Set up the internal node
-    node.leftChildIndex = leftChildIndex;
-    node.rightChildIndex = rightChildIndex;
-    node.startIndex = -1;  // Internal nodes don't store triangle indices directly
-    node.primitiveCount = 0;  // Internal nodes don't store triangle counts directly
-
-    // Add the internal node to the BVH
-    bvh.push_back(node);
-    return bvh.size() - 1;
+    std::cout << "BVH built with " << bvh.size() << " nodes." << std::endl;
 }
 
-void Scene::buildAndFlattenBVH(int meshStart, int meshCount) {
-// Step 1: Build the hierarchical BVH
-    int bvhRoot = buildBVHRecursive(meshStart, meshCount, 0);
-    std::cout << "Built hierarchical BVH with " << bvh.size() << " nodes." << std::endl;
+void Scene::UpdateNodeBounds(int nodeIdx) {
+    BVHNode& node = bvh[nodeIdx];
+    node.aabb.minBounds = glm::vec3(FLT_MAX);
+    node.aabb.maxBounds = glm::vec3(-FLT_MAX);
 
-    // Step 2: Preallocate the linear BVH array (the maximum number of nodes is 2 * primitives - 1)
-    linearBVH.resize(2 * meshCount - 1);
+    for (int i = 0; i < node.primCount; ++i) {
+        int triIdxLocal = triIdx[node.firstPrim + i];
+        const Triangle& tri = triangles[triIdxLocal];
+        const glm::vec3& v0 = vertices[tri.v[0]];
+        const glm::vec3& v1 = vertices[tri.v[1]];
+        const glm::vec3& v2 = vertices[tri.v[2]];
 
-    // Step 3: Flatten the BVH tree into the linear array
-    int offset = 0;
-    int root = flattenBVHTree(bvhRoot, &offset);
-
-    std::cout << "Flattened BVH into " << linearBVH.size() << " linear nodes." << std::endl;
+        node.aabb.minBounds = glm::min(node.aabb.minBounds, glm::min(v0, glm::min(v1, v2)));
+        node.aabb.maxBounds = glm::max(node.aabb.maxBounds, glm::max(v0, glm::max(v1, v2)));
+    }
 }
 
-int Scene::flattenBVHTree(int nodeIndex, int *offset) {
-    const BVHNode& node = bvh[nodeIndex];
-    LinearBVHNode& linearNode = linearBVH[*offset];
+void Scene::Subdivide(int nodeIdx) {
+    BVHNode& node = bvh[nodeIdx];
 
-    // Copy AABB to the linear node
-    linearNode.aabb = node.aabb;
-
-    // Store current offset and move to the next position in the linear array
-    int currentOffset = (*offset)++;
-
-    if (node.isLeaf()) {
-        // Leaf node: store the primitivesOffset and number of primitives
-        linearNode.primitivesOffset = node.startIndex;
-        linearNode.nPrimitives = node.primitiveCount;
-    } else {
-        // Interior node: store axis and number of primitives = 0
-        linearNode.axis = node.axis;
-        linearNode.nPrimitives = 0;
-
-        // Recursively flatten left child (it is stored immediately after the parent in the array)
-        flattenBVHTree(node.leftChildIndex, offset);
-
-        // Store the offset of the second child in the current linear node
-        linearNode.secondChildOffset = *offset;
-
-        // Recursively flatten the right child
-        flattenBVHTree(node.rightChildIndex, offset);
+    // Terminate recursion if node is a leaf
+    if (node.primCount <= 2) {
+        return;
     }
 
-    return currentOffset;
-}
+    // Determine split axis (longest axis)
+    glm::vec3 extent = node.aabb.maxBounds - node.aabb.minBounds;
+    int axis = 0;
+    if (extent.y > extent.x) axis = 1;
+    if (extent.z > extent[axis]) axis = 2;
 
+    // Determine split position (midpoint)
+    float splitPos = node.aabb.minBounds[axis] + extent[axis] * 0.5f;
+
+    // Partition primitives based on split plane
+    int i = node.firstPrim;
+    int j = node.firstPrim + node.primCount - 1;
+
+    while (i <= j) {
+        const Triangle& tri = triangles[triIdx[i]];
+        if (tri.centroid[axis] < splitPos) {
+            ++i;
+        } else {
+            std::swap(triIdx[i], triIdx[j]);
+            --j;
+        }
+    }
+
+    int leftCount = i - node.firstPrim;
+    int rightCount = node.primCount - leftCount;
+
+    // Abort split if one side is empty
+    if (leftCount == 0 || rightCount == 0) {
+        return;
+    }
+
+    // Create left child
+    int leftChildIdx = static_cast<int>(bvh.size());
+    bvh.emplace_back();
+    BVHNode& leftChild = bvh[leftChildIdx];
+    leftChild.firstPrim = node.firstPrim;
+    leftChild.primCount = leftCount;
+    UpdateNodeBounds(leftChildIdx);
+
+    // Create right child
+    int rightChildIdx = static_cast<int>(bvh.size());
+    bvh.emplace_back();
+    BVHNode& rightChild = bvh[rightChildIdx];
+    rightChild.firstPrim = i;
+    rightChild.primCount = rightCount;
+    UpdateNodeBounds(rightChildIdx);
+
+    // Update current node to internal node
+    node.leftChild = leftChildIdx;
+    node.rightChild = rightChildIdx;
+    node.primCount = 0; // Not a leaf anymore
+
+    // Recurse into children
+    Subdivide(leftChildIdx);
+    Subdivide(rightChildIdx);
+}
 
 
 

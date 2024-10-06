@@ -113,32 +113,15 @@ struct Triangle {
     int materialId;
 
     AABB aabb;
+    glm::vec3 centroid;
 };
 
 struct BVHNode {
     AABB aabb;
-    int startIndex = -1;
-    int leftChildIndex = -1;
-    int rightChildIndex = -1;
-    int primitiveCount;
-    int axis = -1;
+    int leftChild = -1;
+    int rightChild = -1;
+    int firstPrim = -1;
+    int primCount = 0;
 
-    bool isLeaf() const {
-        return leftChildIndex == -1 && rightChildIndex == -1;
-    }
-};
-
-struct LinearBVHNode {
-    AABB aabb;
-    union {
-        int primitivesOffset;
-        int secondChildOffset;
-    };
-    int nPrimitives;
-    int axis;
-    int pad;
-
-    __host__ __device__ bool isLeaf() const {
-        return nPrimitives > 0;
-    }
+    bool isLeaf() const { return primCount > 0; }
 };
