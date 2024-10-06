@@ -10,7 +10,7 @@
 #include "tiny_gltf.h"
 #include "tiny_obj_loader.h"
 
-#define DEBUG 0
+#define DEBUG 1
 
 using namespace std;
 
@@ -19,6 +19,7 @@ class Scene
 private:
     ifstream fp_in;
     void loadFromJSON(const std::string& jsonName);
+    int loadGlTF(const string &fullPath, Geom &geom);
     int loadObj(const std::string& fullPath, Geom& geom);
 
     int buildBVHRecursive(int start, int count, int depth);

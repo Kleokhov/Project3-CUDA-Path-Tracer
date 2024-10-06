@@ -117,7 +117,18 @@ void Scene::loadFromJSON(const std::string& jsonName)
 
         const auto& type = p["TYPE"];
         if (type == "gltf") {
+            newGeom.type = MESH;
+            const std::string filename = p["FILE"].get<std::string>();
 
+            std::string sceneDir = jsonName.substr(0, jsonName.find_last_of("/\\") + 1);
+            std::string fullPath = sceneDir + filename;
+
+            // Load the mesh
+            int ret = loadGlTF(fullPath, newGeom);
+            if (ret != 0) {
+                std::cerr << "Failed to load gltf mesh: " << filename << std::endl;
+                exit(-1);
+            }
         } else if (type == "obj") {
             newGeom.type = MESH;
             const std::string filename = p["FILE"].get<std::string>();
@@ -203,6 +214,213 @@ void Scene::loadFromJSON(const std::string& jsonName)
     std::fill(state.image.begin(), state.image.end(), glm::vec3());
 }
 
+int Scene::loadGlTF(const string &fullPath, Geom &geom) {
+    tinygltf::Model model;
+    tinygltf::TinyGLTF loader;
+    std::string err;
+    std::string warn;
+
+    bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, fullPath);
+    if (!warn.empty()) {
+        printf("Warn: %s\n", warn.c_str());
+    }
+
+    if (!err.empty()) {
+        printf("Err: %s\n", err.c_str());
+    }
+
+    if (!ret) {
+        printf("Failed to parse glTF\n");
+        return -1;
+    }
+
+    std::cout << "Loaded glTF file: " << fullPath << std::endl;
+
+    geom.meshStart = triangles.size();
+    geom.meshCount = 0;
+
+    // Iterate over all meshes in the glTF model
+    for (const auto& mesh : model.meshes) {
+        // Iterate over all primitives in the mesh
+        for (const auto& primitive : mesh.primitives) {
+            // Only process triangle primitives
+            if (primitive.mode != TINYGLTF_MODE_TRIANGLES) {
+                std::cout << "Skipping non-triangle primitive." << std::endl;
+                continue;
+            }
+
+            // Ensure the primitive has position data
+            if (primitive.attributes.find("POSITION") == primitive.attributes.end()) {
+                std::cerr << "Primitive is missing POSITION attribute." << std::endl;
+                continue;
+            }
+
+            // Accessors for POSITION, NORMAL, TEXCOORD_0
+            const tinygltf::Accessor &posAccessor = model.accessors[primitive.attributes.at("POSITION")];
+            const tinygltf::BufferView &posView = model.bufferViews[posAccessor.bufferView];
+            const tinygltf::Buffer &posBuffer = model.buffers[posView.buffer];
+            const float* posData = reinterpret_cast<const float*>(&posBuffer.data[posView.byteOffset
+                                                                                  + posAccessor.byteOffset]);
+
+            // Append positions
+            int baseVertexIndex = static_cast<int>(vertices.size());
+            for (size_t i = 0; i < posAccessor.count; ++i) {
+                glm::vec3 vertex(
+                        posData[3 * i + 0],
+                        posData[3 * i + 1],
+                        posData[3 * i + 2]
+                );
+                // Apply transformation
+                vertex = glm::vec3(geom.transform * glm::vec4(vertex, 1.0f));
+                vertices.emplace_back(vertex);
+            }
+
+            // Access indices if available
+            bool hasIndices = primitive.indices >= 0;
+            std::vector<unsigned int> indices;
+            if (hasIndices) {
+                const tinygltf::Accessor &indexAccessor = model.accessors[primitive.indices];
+                const tinygltf::BufferView &indexView = model.bufferViews[indexAccessor.bufferView];
+                const tinygltf::Buffer &indexBuffer = model.buffers[indexView.buffer];
+                const unsigned char* indexData = &indexBuffer.data[indexView.byteOffset + indexAccessor.byteOffset];
+
+                // Determine the index type
+                if (indexAccessor.componentType == TINYGLTF_PARAMETER_TYPE_UNSIGNED_SHORT) {
+                    const unsigned short* buf = reinterpret_cast<const unsigned short*>(indexData);
+                    indices.reserve(indexAccessor.count);
+                    for (size_t i = 0; i < indexAccessor.count; ++i) {
+                        indices.push_back(static_cast<unsigned int>(buf[i]) + baseVertexIndex);
+                    }
+                }
+                else if (indexAccessor.componentType == TINYGLTF_PARAMETER_TYPE_UNSIGNED_INT) {
+                    const unsigned int* buf = reinterpret_cast<const unsigned int*>(indexData);
+                    indices.reserve(indexAccessor.count);
+                    for (size_t i = 0; i < indexAccessor.count; ++i) {
+                        indices.push_back(buf[i] + baseVertexIndex);
+                    }
+                }
+                else {
+                    std::cerr << "Unsupported index component type." << std::endl;
+                    continue;
+                }
+            }
+            else {
+                // If no indices, generate them sequentially
+                size_t vertexCount = posAccessor.count;
+                indices.reserve(vertexCount);
+                for (size_t i = 0; i < vertexCount; ++i) {
+                    indices.push_back(static_cast<unsigned int>(baseVertexIndex + i));
+                }
+            }
+
+            // Access normals if available
+            bool hasNormals = false;
+            int baseNormalIndex = -1;
+            if (primitive.attributes.find("NORMAL") != primitive.attributes.end()) {
+                hasNormals = true;
+                const tinygltf::Accessor &normAccessor = model.accessors[primitive.attributes.at("NORMAL")];
+                const tinygltf::BufferView &normView = model.bufferViews[normAccessor.bufferView];
+                const tinygltf::Buffer &normBuffer = model.buffers[normView.buffer];
+                const float* normData = reinterpret_cast<const float*>(&normBuffer.data[normView.byteOffset
+                                                                                        + normAccessor.byteOffset]);
+
+                // Append normals
+                baseNormalIndex = static_cast<int>(normals.size());
+                for (size_t i = 0; i < normAccessor.count; ++i) {
+                    glm::vec3 norm(
+                            normData[3 * i + 0],
+                            normData[3 * i + 1],
+                            normData[3 * i + 2]
+                    );
+                    // Apply normal transformation: inverse transpose of the model matrix
+                    norm = glm::normalize(glm::mat3(geom.invTranspose) * norm);
+                    normals.emplace_back(norm);
+                }
+            }
+
+            // Access texture coordinates if available
+            bool hasTexcoords = false;
+            int baseUVIndex = -1;
+            if (primitive.attributes.find("TEXCOORD_0") != primitive.attributes.end()) {
+                hasTexcoords = true;
+                const tinygltf::Accessor &uvAccessor = model.accessors[primitive.attributes.at("TEXCOORD_0")];
+                const tinygltf::BufferView &uvView = model.bufferViews[uvAccessor.bufferView];
+                const tinygltf::Buffer &uvBuffer = model.buffers[uvView.buffer];
+                const float* uvData = reinterpret_cast<const float*>(&uvBuffer.data[uvView.byteOffset + uvAccessor.byteOffset]);
+
+                // Append UVs to the global uvs array
+                baseUVIndex = static_cast<int>(uvs.size());
+                for (size_t i = 0; i < uvAccessor.count; ++i) {
+                    glm::vec2 uv(
+                            uvData[2 * i + 0],
+                            uvData[2 * i + 1]
+                    );
+                    uvs.emplace_back(uv);
+                }
+            }
+
+            // Iterate over triangles
+            size_t triangleCount = (indices.size() / 3) * 3;
+            for (size_t i = 0; i + 2 < triangleCount; i += 3) {
+                Triangle triangle{};
+                triangle.materialId = geom.materialid;
+
+                // Assign vertex indices
+                triangle.v[0] = indices[i];
+                triangle.v[1] = indices[i + 1];
+                triangle.v[2] = indices[i + 2];
+
+                // Assign normal indices with baseNormalIndex
+                if (hasNormals && baseNormalIndex != -1) {
+                    triangle.n[0] = triangle.v[0] + baseNormalIndex;
+                    triangle.n[1] = triangle.v[1] + baseNormalIndex;
+                    triangle.n[2] = triangle.v[2] + baseNormalIndex;
+                }
+                else {
+                    triangle.n[0] = -1;
+                    triangle.n[1] = -1;
+                    triangle.n[2] = -1;
+                }
+
+                // Assign UV indices with baseUVIndex
+                if (hasTexcoords && baseUVIndex != -1) {
+                    triangle.uv[0] = triangle.v[0] + baseUVIndex;
+                    triangle.uv[1] = triangle.v[1] + baseUVIndex;
+                    triangle.uv[2] = triangle.v[2] + baseUVIndex;
+                }
+                else {
+                    triangle.uv[0] = -1;
+                    triangle.uv[1] = -1;
+                    triangle.uv[2] = -1;
+                }
+
+                // Retrieve vertex positions
+                glm::vec3 v0 = vertices[triangle.v[0]];
+                glm::vec3 v1 = vertices[triangle.v[1]];
+                glm::vec3 v2 = vertices[triangle.v[2]];
+
+                // Compute the Axis-Aligned Bounding Box (AABB) for the triangle
+                triangle.aabb.minBounds = glm::min(glm::min(v0, v1), v2);
+                triangle.aabb.maxBounds = glm::max(glm::max(v0, v1), v2);
+                triangle.aabb.centroid = (triangle.aabb.minBounds + triangle.aabb.maxBounds) * 0.5f;
+
+                // Add the triangle to the global triangles vector
+                triangles.emplace_back(triangle);
+                geom.meshCount++;
+            }
+        }
+    }
+
+#if DEBUG
+    std::cout << "Vertices: " << vertices.size() << std::endl;
+    std::cout << "Normals: " << normals.size() << std::endl;
+    std::cout << "UVs: " << uvs.size() << std::endl;
+    std::cout << "Triangles: " << geom.meshCount << std::endl;
+#endif
+
+    return 0;
+}
+
 int Scene::loadObj(const string &fullPath, Geom &geom) {
     tinyobj::ObjReaderConfig reader_config;
     tinyobj::ObjReader reader;
@@ -279,8 +497,10 @@ int Scene::loadObj(const string &fullPath, Geom &geom) {
         }
     }
 
-    // Process triangles
     geom.meshStart = triangles.size();
+    geom.meshCount = 0;
+
+    // Process triangles
     for (const auto& shape : objShapes) {
         size_t indexOffset = 0;
 
@@ -297,7 +517,6 @@ int Scene::loadObj(const string &fullPath, Geom &geom) {
             }
 
             Triangle triangle{};
-            // Assign material ID to each triangle
             triangle.materialId = geom.materialid;
 
             // Assign vertex, normal, and UV indices
@@ -328,7 +547,7 @@ int Scene::loadObj(const string &fullPath, Geom &geom) {
     std::cout << "Vertices: " << vertices.size() << std::endl;
     std::cout << "Normals: " << normals.size() << std::endl;
     std::cout << "UVs: " << uvs.size() << std::endl;
-    std::cout << "Meshes: " << geom.meshCount << std::endl;
+    std::cout << "Triangles: " << geom.meshCount << std::endl;
 #endif
 
     return 0;
