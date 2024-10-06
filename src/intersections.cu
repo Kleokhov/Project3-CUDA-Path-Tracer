@@ -91,12 +91,12 @@ __host__ __device__ float sphereIntersectionTest(
     }
     else if (t1 > 0 && t2 > 0)
     {
-        t = min(t1, t2);
+        t = fmin(t1, t2);
         outside = true;
     }
     else
     {
-        t = max(t1, t2);
+        t = fmax(t1, t2);
         outside = false;
     }
 
@@ -126,13 +126,13 @@ __host__ __device__ bool intersectRayAABB(
 
     t1 = (minBounds.y - ray.origin.y) * invDir.y;
     t2 = (maxBounds.y - ray.origin.y) * invDir.y;
-    tmin = glm::max(tmin, glm::min(glm::min(t1, t2), tmax));
-    tmax = glm::min(tmax, glm::max(glm::max(t1, t2), tmin));
+    tmin = glm::max(tmin, glm::min(t1, t2));
+    tmax = glm::min(tmax, glm::max(t1, t2));
 
     t1 = (minBounds.z - ray.origin.z) * invDir.z;
     t2 = (maxBounds.z - ray.origin.z) * invDir.z;
-    tmin = glm::max(tmin, glm::min(glm::min(t1, t2), tmax));
-    tmax = glm::min(tmax, glm::max(glm::max(t1, t2), tmin));
+    tmin = glm::max(tmin, glm::min(t1, t2));
+    tmax = glm::min(tmax, glm::max(t1, t2));
 
     return tmax >= tmin && tmax >= 0.0f;
 }
@@ -243,100 +243,6 @@ __host__ __device__ float meshIntersectionTest(
     }
 }
 
-__host__ __device__ float meshIntersectionTestWithBVH(
-        const Geom& geom,
-        const Ray& ray,
-        glm::vec3& intersectionPoint,
-        glm::vec3& normal,
-        bool& outside,
-        const glm::vec3* vertices,
-        const glm::vec3* normals,
-        const glm::vec2* uvs,
-        const Triangle* triangles,
-        const BVHNode* bvhNodes) {
-
-    float t_min = FLT_MAX;
-    bool hit = false;
-    bool normalsExist = normals != nullptr && normals[0] != glm::vec3(0.0f);
-
-    // Precompute the inverse of the ray direction for efficient AABB tests
-    glm::vec3 invDir = 1.0f / ray.direction;
-    int dirIsNeg[3] = { invDir.x < 0, invDir.y < 0, invDir.z < 0 };
-
-    int nodesToVisit[64];
-    int toVisitOffset = 0;
-    nodesToVisit[toVisitOffset++] = geom.bvhRootIndex;
-
-    // BVH traversal loop
-    while (toVisitOffset > 0) {
-        int currentNodeIndex = nodesToVisit[--toVisitOffset];
-        const BVHNode* node = &bvhNodes[currentNodeIndex];
-
-        // Check if the ray intersects the node's bounding box
-        if (intersectRayAABB(ray, node->aabb.minBounds, node->aabb.maxBounds)) {
-            // Check if it's a leaf node
-            bool isLeaf = (node->leftChildIndex == -1) && (node->rightChildIndex == -1);
-            if (isLeaf) {
-                // Leaf node: intersect the ray with the triangles in this leaf
-                for (int i = 0; i < node->primitiveCount; ++i) {
-                    const Triangle& triangle = triangles[node->startIndex + i];
-
-                    glm::vec3 v0 = vertices[triangle.v[0]];
-                    glm::vec3 v1 = vertices[triangle.v[1]];
-                    glm::vec3 v2 = vertices[triangle.v[2]];
-
-                    float t, u, v;
-                    if (intersectRayTriangle(ray.origin, ray.direction, v0, v1, v2, t, u, v) && t > EPSILON) {
-                        if (t < t_min) {
-                            // Update the closest intersection
-                            t_min = t;
-                            intersectionPoint = ray.origin + t * ray.direction;
-
-                            if (normalsExist) {
-                                // Barycentric interpolation of vertex normals
-                                glm::vec3 n0 = normals[triangle.n[0]];
-                                glm::vec3 n1 = normals[triangle.n[1]];
-                                glm::vec3 n2 = normals[triangle.n[2]];
-                                normal = glm::normalize((1.0f - u - v) * n0 + u * n1 + v * n2);
-                            } else {
-                                // Flat shading: use face normal
-                                normal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
-                            }
-
-                            // Determine if the intersection is from the outside
-                            outside = glm::dot(ray.direction, normal) < 0.0f;
-                            if (!outside) {
-                                normal = -normal;
-                            }
-
-                            hit = true;
-                        }
-                    }
-                }
-            } else {
-                // Push children in order based on direction
-                if (dirIsNeg[node->axis]) {
-                    if (node->rightChildIndex != -1) {
-                        nodesToVisit[toVisitOffset++] = node->rightChildIndex;
-                    }
-                    if (node->leftChildIndex != -1) {
-                        nodesToVisit[toVisitOffset++] = node->leftChildIndex;
-                    }
-                } else {
-                    if (node->leftChildIndex != -1) {
-                        nodesToVisit[toVisitOffset++] = node->leftChildIndex;
-                    }
-                    if (node->rightChildIndex != -1) {
-                        nodesToVisit[toVisitOffset++] = node->rightChildIndex;
-                    }
-                }
-            }
-        }
-    }
-
-    return hit ? t_min : -1.0f;
-}
-
 __host__ __device__ float meshIntersectionTestWithLinearBVH(
         const Geom& geom,
         const Ray& ray,
@@ -347,8 +253,9 @@ __host__ __device__ float meshIntersectionTestWithLinearBVH(
         const glm::vec3* normals,
         const glm::vec2* uvs,
         const Triangle* triangles,
-        const LinearBVHNode* linearBVHNodes)
-{
+        const LinearBVHNode* linearBVHNodes,
+        int& materialId) {
+
     float t_min = FLT_MAX;
     bool hit = false;
     bool normalsExist = normals != nullptr && normals[0] != glm::vec3(0.0f);
@@ -356,23 +263,23 @@ __host__ __device__ float meshIntersectionTestWithLinearBVH(
     glm::vec3 invDir = 1.0f / ray.direction;
     int dirIsNeg[3] = { invDir.x < 0, invDir.y < 0, invDir.z < 0 };
 
-    // Stack for traversal
     int nodesToVisit[64];
     int toVisitOffset = 0;
-
-    // Start traversal with the root node (index 0)
     nodesToVisit[toVisitOffset++] = 0;
 
+    // BVH traversal loop
     while (toVisitOffset > 0) {
         int currentNodeIndex = nodesToVisit[--toVisitOffset];
         const LinearBVHNode* node = &linearBVHNodes[currentNodeIndex];
 
-        // Test ray-box intersection
+        // Check if the ray intersects the node's bounding box
         if (intersectRayAABB(ray, node->aabb.minBounds, node->aabb.maxBounds)) {
+            // Check if it's a leaf node
             if (node->nPrimitives > 0) {
-                // If it's a leaf, test against all the triangles in the leaf
+                // Leaf node: intersect the ray with the triangles in this leaf
                 for (int i = 0; i < node->nPrimitives; ++i) {
                     const Triangle& triangle = triangles[node->primitivesOffset + i];
+
                     glm::vec3 v0 = vertices[triangle.v[0]];
                     glm::vec3 v1 = vertices[triangle.v[1]];
                     glm::vec3 v2 = vertices[triangle.v[2]];
@@ -401,18 +308,19 @@ __host__ __device__ float meshIntersectionTestWithLinearBVH(
                                 normal = -normal;
                             }
 
+                            materialId = triangle.materialId;
                             hit = true;
                         }
                     }
                 }
             } else {
-                // Otherwise, push children to the stack
+                // Non-leaf node: push the children to the stack
                 if (dirIsNeg[node->axis]) {
-                    nodesToVisit[toVisitOffset++] = node->secondChildOffset;
                     nodesToVisit[toVisitOffset++] = currentNodeIndex + 1;
+                    nodesToVisit[toVisitOffset++] = node->secondChildOffset;
                 } else {
-                    nodesToVisit[toVisitOffset++] = currentNodeIndex + 1;
                     nodesToVisit[toVisitOffset++] = node->secondChildOffset;
+                    nodesToVisit[toVisitOffset++] = currentNodeIndex + 1;
                 }
             }
         }
@@ -420,4 +328,3 @@ __host__ __device__ float meshIntersectionTestWithLinearBVH(
 
     return hit ? t_min : -1.0f;
 }
-

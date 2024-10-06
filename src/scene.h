@@ -10,6 +10,8 @@
 #include "tiny_gltf.h"
 #include "tiny_obj_loader.h"
 
+#define DEBUG 1
+
 using namespace std;
 
 class Scene
@@ -21,7 +23,6 @@ private:
 
     int buildBVHRecursive(int start, int count, int depth);
     int flattenBVHTree(int nodeIndex, int* offset);
-    void buildAndFlattenBVH(int meshStart, int meshCount);
 
 public:
     Scene(string filename);

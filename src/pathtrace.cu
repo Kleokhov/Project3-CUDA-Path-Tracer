@@ -1,36 +1,5 @@
 #include "pathtrace.h"
 
-#include <cstdio>
-#include <cuda.h>
-#include <cmath>
-#include <thrust/execution_policy.h>
-#include <thrust/random.h>
-#include <thrust/partition.h>
-
-#include "sceneStructs.h"
-#include "scene.h"
-#include "glm/glm.hpp"
-#include "glm/gtx/norm.hpp"
-#include "utilities.h"
-#include "intersections.h"
-#include "interactions.h"
-
-#define ERRORCHECK 1
-
-// sort by material
-#define SORTMATERIAL 1
-
-// Russian roulette
-#define RUSSIAN_ROULETTE 1
-#define MIN_BOUNCES 3
-#define MIN_SURVIVAL_PROB 0.05f
-
-// AABB Bounding test
-#define USE_AABB 1
-
-// BVH
-#define USE_BVH 1
-
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 #define checkCUDAError(msg) checkCUDAErrorFn(msg, FILENAME, __LINE__)
 void checkCUDAErrorFn(const char* msg, const char* file, int line)
@@ -56,8 +25,7 @@ void checkCUDAErrorFn(const char* msg, const char* file, int line)
 #endif // ERRORCHECK
 }
 
-__host__ __device__
-thrust::default_random_engine makeSeededRandomEngine(int iter, int index, int depth)
+__host__ __device__ thrust::default_random_engine makeSeededRandomEngine(int iter, int index, int depth)
 {
     int h = utilhash((1 << 31) | (depth << 22) | iter) ^ utilhash(index);
     return thrust::default_random_engine(h);
@@ -273,6 +241,7 @@ __global__ void computeIntersections(
         glm::vec3 tmp_normal;
         glm::vec2 tmp_uv;
         bool tmp_outside = true;
+        int tmp_materialid = -1;
 
         // naive parse through global geoms
         for (int i = 0; i < geoms_size; i++)
@@ -290,23 +259,17 @@ __global__ void computeIntersections(
             {
 #if USE_BVH
                 t = meshIntersectionTestWithLinearBVH(geom,
-                                         pathSegment.ray,
-                                         tmp_intersect,
-                                         tmp_normal,
-                                         tmp_outside,
-                                         vertices,
-                                         normals,
-                                         uvs,
-                                         triangles,
-                                         linearBVHNodes);
+                                                pathSegment.ray,
+                                                tmp_intersect,
+                                                tmp_normal,
+                                                tmp_outside,
+                                                vertices,
+                                                normals,
+                                                uvs,
+                                                triangles,
+                                                linearBVHNodes,
+                                                tmp_materialid);
 #else
-                // AABB Bounding test
-//                if (USE_AABB) {
-//                    if (!intersectRayAABB(pathSegment.ray, geom.minBounds, geom.maxBounds)) {
-//                        continue;
-//                    }
-//                }
-
                 t = meshIntersectionTest(geom,
                                          pathSegment.ray,
                                          tmp_intersect,
@@ -329,6 +292,12 @@ __global__ void computeIntersections(
                 normal = tmp_normal;
                 uv = tmp_uv;
                 outside = tmp_outside;
+
+                if (geom.type == MESH) {
+                    intersections[path_index].materialId = tmp_materialid;
+                } else {
+                    intersections[path_index].materialId = geoms[hit_geom_index].materialid;
+                }
             }
         }
 
@@ -340,7 +309,6 @@ __global__ void computeIntersections(
         {
             // The ray hits something
             intersections[path_index].t = t_min;
-            intersections[path_index].materialId = geoms[hit_geom_index].materialid;
             intersections[path_index].surfaceNormal = normal;
             intersections[path_index].uv = uv;
             intersections[path_index].outside = outside;
@@ -479,35 +447,6 @@ void pathtrace(uchar4* pbo, int frame, int iter)
     const int blockSize1d = 256;
 
     ///////////////////////////////////////////////////////////////////////////
-
-    // Recap:
-    // * Initialize array of path rays (using rays that come out of the camera)
-    //   * You can pass the Camera object to that kernel.
-    //   * Each path ray must carry at minimum a (ray, color) pair,
-    //   * where color starts as the multiplicative identity, white = (1, 1, 1).
-    //   * This has already been done for you.
-    // * For each depth:
-    //   * Compute an intersection in the scene for each path ray.
-    //     A very naive version of this has been implemented for you, but feel
-    //     free to add more primitives and/or a better algorithm.
-    //     Currently, intersection distance is recorded as a parametric distance,
-    //     t, or a "distance along the ray." t = -1.0 indicates no intersection.
-    //     * Color is attenuated (multiplied) by reflections off of any object
-    //   * TODO: Stream compact away all of the terminated paths.
-    //     You may use either your implementation or `thrust::remove_if` or its
-    //     cousins.
-    //     * Note that you can't really use a 2D kernel launch any more - switch
-    //       to 1D.
-    //   * TODO: Shade the rays that intersected something or didn't bottom out.
-    //     That is, color the ray by performing a color computation according
-    //     to the shader, then generate a new ray to continue the ray path.
-    //     We recommend just updating the ray's PathSegment in place.
-    //     Note that this step may come before or after stream compaction,
-    //     since some shaders you write may also cause a path to terminate.
-    // * Finally, add this iteration's results to the image. This has been done
-    //   for you.
-
-    // TODO: perform one iteration of path tracing
 
     generateRayFromCamera<<<blocksPerGrid2d, blockSize2d>>>(cam, iter, traceDepth, dev_paths);
     checkCUDAError("generate camera ray");
