@@ -182,7 +182,8 @@ __host__ __device__ float meshIntersectionTest(
         const glm::vec3* vertices,
         const glm::vec3* normals,
         const glm::vec2* uvs,
-        const Triangle* triangles) {
+        const Triangle* triangles,
+        int& materialId) {
     float t_min = FLT_MAX;
     bool hit = false;
     bool normalsExist = normals != nullptr && normals[0] != glm::vec3(0.0f);
@@ -231,6 +232,7 @@ __host__ __device__ float meshIntersectionTest(
                     normal = -normal;
                 }
 
+                materialId = triangle.materialId;
                 hit = true;
             }
         }

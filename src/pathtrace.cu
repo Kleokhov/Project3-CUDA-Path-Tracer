@@ -255,6 +255,7 @@ __global__ void computeIntersections(
             else if (geom.type == SPHERE)
             {
                 t = sphereIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, tmp_outside);
+
             } else if (geom.type == MESH)
             {
 #if USE_BVH
@@ -278,7 +279,8 @@ __global__ void computeIntersections(
                                          vertices,
                                          normals,
                                          uvs,
-                                         triangles);
+                                         triangles,
+                                         tmp_materialid);
 #endif
             }
 
@@ -319,6 +321,7 @@ __global__ void computeIntersections(
 
 __global__ void shadeMaterial(
     int iter,
+    int depth,
     int num_paths,
     ShadeableIntersection* shadeableIntersections,
     PathSegment* pathSegments,
@@ -356,14 +359,12 @@ __global__ void shadeMaterial(
                segment.color = glm::vec3(0.0f);
            }
 
-            // Apply Russian roulette
-            if (RUSSIAN_ROULETTE && segment.remainingBounces >= MIN_BOUNCES) {
-                // Compute the maximum component of the path throughput (color)
-                float maxComponent = fmaxf(segment.color.r, fmaxf(segment.color.g, segment.color.b));
-                maxComponent = glm::clamp(maxComponent, 0.0f, 1.0f);
-
-                // Calculate termination probability q
-                float q = fmaxf(1.0f - maxComponent, MIN_SURVIVAL_PROB);
+            // Apply Russian roulette. Reference to PBRT
+#if RUSSIAN_ROULETTE
+            // start after a minimum number of bounces
+            if (depth > MIN_BOUNCES && segment.remainingBounces > 0) {
+                float y = glm::max(glm::max(segment.color.r, segment.color.g), segment.color.b);
+                float q = glm::max(MIN_SURVIVAL_PROB, 1.0f - y);
 
                 thrust::uniform_real_distribution<float> u01(0.0f, 1.0f);
                 float randVal = u01(rng);
@@ -377,6 +378,7 @@ __global__ void shadeMaterial(
                     segment.color /= (1.0f - q);
                 }
             }
+#endif
         }
     } else {
         // If no intersection, black out the ray
@@ -498,6 +500,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
 
         shadeMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(
             iter,
+            depth,
             num_paths,
             dev_intersections,
             dev_paths,

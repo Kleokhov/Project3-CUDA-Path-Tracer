@@ -98,7 +98,8 @@ __host__ __device__ float meshIntersectionTest(
         const glm::vec3* vertices,
         const glm::vec3* normals,
         const glm::vec2* uvs,
-        const Triangle* triangles);
+        const Triangle* triangles,
+        int& materialId);
 
 __host__ __device__ float meshIntersectionTestWithLinearBVH(
         const Geom& geom,
