@@ -178,6 +178,7 @@ __host__ __device__ float meshIntersectionTest(
         const Ray& ray,
         glm::vec3& intersectionPoint,
         glm::vec3& normal,
+        glm::vec2& uv,
         bool& outside,
         const glm::vec3* vertices,
         const glm::vec3* normals,
@@ -187,6 +188,7 @@ __host__ __device__ float meshIntersectionTest(
     float t_min = FLT_MAX;
     bool hit = false;
     bool normalsExist = normals != nullptr && normals[0] != glm::vec3(0.0f);
+    bool uvsExist = uvs != nullptr;
 
     // Iterate over all triangles in the mesh
     for (int i = geom.meshStart; i < geom.meshStart + geom.meshCount; i++) {
@@ -225,6 +227,16 @@ __host__ __device__ float meshIntersectionTest(
                     normal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
                 }
 
+                if (uvsExist) {
+                    glm::vec2 uv0 = uvs[triangle.uv[0]];
+                    glm::vec2 uv1 = uvs[triangle.uv[1]];
+                    glm::vec2 uv2 = uvs[triangle.uv[2]];
+
+                    uv = (1.0f - u - v) * uv0 + u * uv1 + v * uv2;
+                } else {
+                    uv = glm::vec2(0.0f);
+                }
+
                 // Determine if the intersection is from outside
                 outside = glm::dot(ray.direction, normal) < 0.0f;
                 if (!outside)
@@ -250,6 +262,7 @@ __host__ __device__ float meshIntersectionTestWithLinearBVH(
         const Ray& ray,
         glm::vec3& intersectionPoint,
         glm::vec3& normal,
+        glm::vec2& uv,
         bool& outside,
         const glm::vec3* vertices,
         const glm::vec3* normals,
@@ -261,6 +274,7 @@ __host__ __device__ float meshIntersectionTestWithLinearBVH(
     float t_min = FLT_MAX;
     bool hit = false;
     bool normalsExist = normals != nullptr && normals[0] != glm::vec3(0.0f);
+    bool uvsExist = uvs != nullptr;
 
     glm::vec3 invDir = 1.0f / ray.direction;
     int dirIsNeg[3] = { invDir.x < 0, invDir.y < 0, invDir.z < 0 };
@@ -302,6 +316,16 @@ __host__ __device__ float meshIntersectionTestWithLinearBVH(
                             } else {
                                 // Flat shading: use face normal
                                 normal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
+                            }
+
+                            if (uvsExist) {
+                                glm::vec2 uv0 = uvs[triangle.uv[0]];
+                                glm::vec2 uv1 = uvs[triangle.uv[1]];
+                                glm::vec2 uv2 = uvs[triangle.uv[2]];
+
+                                uv = (1.0f - u - v) * uv0 + u * uv1 + v * uv2;
+                            } else {
+                                uv = glm::vec2(0.0f);
                             }
 
                             // Determine if the intersection is from the outside

@@ -239,6 +239,45 @@ int Scene::loadGlTF(const string &fullPath, Geom &geom) {
     geom.meshStart = triangles.size();
     geom.meshCount = 0;
 
+    // Step 1: Load materials from the glTF model
+    std::unordered_map<int, int> materialIDMap;
+    for (size_t i = 0; i < model.materials.size(); ++i) {
+        const tinygltf::Material& gltfMaterial = model.materials[i];
+        Material material{};
+
+        // Extract base color factor from pbrMetallicRoughness
+        if (gltfMaterial.values.find("baseColorFactor") != gltfMaterial.values.end()) {
+            const tinygltf::Parameter& baseColor = gltfMaterial.values.at("baseColorFactor");
+            tinygltf::ColorValue colorValues = baseColor.ColorFactor();
+
+            material.color = glm::vec3(
+                    static_cast<float>(colorValues[0]),  // R
+                    static_cast<float>(colorValues[1]),  // G
+                    static_cast<float>(colorValues[2])   // B
+            );
+        } else {
+            material.color = glm::vec3(1.0f);  // Default to white if no base color is specified
+        }
+
+        // Handle emission (if present)
+        if (gltfMaterial.additionalValues.find("emissiveFactor") != gltfMaterial.additionalValues.end()) {
+            const tinygltf::Parameter& emissiveColor = gltfMaterial.additionalValues.at("emissiveFactor");
+            tinygltf::ColorValue emissiveValues = emissiveColor.ColorFactor();
+
+            material.emittance = glm::length(glm::vec3(
+                    static_cast<float>(emissiveValues[0]),  // R
+                    static_cast<float>(emissiveValues[1]),  // G
+                    static_cast<float>(emissiveValues[2])   // B
+            ));
+        } else {
+            material.emittance = 0.0f;
+        }
+
+        int materialID = materials.size();
+        materials.push_back(material);
+        materialIDMap[i] = materialID;
+    }
+
     // Iterate over all meshes in the glTF model
     for (const auto& mesh : model.meshes) {
         // Iterate over all primitives in the mesh
@@ -363,7 +402,12 @@ int Scene::loadGlTF(const string &fullPath, Geom &geom) {
             size_t triangleCount = (indices.size() / 3) * 3;
             for (size_t i = 0; i + 2 < triangleCount; i += 3) {
                 Triangle triangle{};
-                triangle.materialId = geom.materialid;
+                int gltfMaterialId = primitive.material;
+                if (materialIDMap.find(gltfMaterialId) != materialIDMap.end()) {
+                    triangle.materialId = materialIDMap[gltfMaterialId];
+                } else {
+                    triangle.materialId = geom.materialid;
+                }
 
                 // Assign vertex indices
                 triangle.v[0] = indices[i];
@@ -497,6 +541,44 @@ int Scene::loadObj(const string &fullPath, Geom &geom) {
         }
     }
 
+    // Load materials from the OBJ file
+    std::unordered_map<int, int> materialIDMap;
+    for (size_t i = 0; i < objMaterials.size(); ++i) {
+        const tinyobj::material_t& objMaterial = objMaterials[i];
+        Material material;
+
+        // Set diffuse color
+        material.color = glm::vec3(
+                objMaterial.diffuse[0],
+                objMaterial.diffuse[1],
+                objMaterial.diffuse[2]);
+
+        // Set specular color and exponent (shininess)
+        material.specular.color = glm::vec3(
+                objMaterial.specular[0],
+                objMaterial.specular[1],
+                objMaterial.specular[2]);
+        material.specular.exponent = objMaterial.shininess;
+
+        // Reflectivity and refractivity
+        material.hasReflective = objMaterial.shininess > 0.0f ? 1.0f : 0.0f;
+        material.hasRefractive = 0.0f;
+        material.indexOfRefraction = 1.0f;
+
+        // Emittance for light materials
+        material.emittance = glm::length(glm::vec3(
+                objMaterial.emission[0],
+                objMaterial.emission[1],
+                objMaterial.emission[2])) > 0.0f ? 1.0f : 0.0f;
+
+        material.roughness = 1.0f - objMaterial.shininess;
+
+        // Add the material to the materials vector and map the OBJ material ID to our internal material ID
+        int materialID = materials.size();
+        materials.push_back(material);
+        materialIDMap[i] = materialID;
+    }
+
     geom.meshStart = triangles.size();
     geom.meshCount = 0;
 
@@ -517,7 +599,13 @@ int Scene::loadObj(const string &fullPath, Geom &geom) {
             }
 
             Triangle triangle{};
-            triangle.materialId = geom.materialid;
+            // Assign material ID from the material map
+            int objMaterialId = shape.mesh.material_ids[f];
+            if (materialIDMap.find(objMaterialId) != materialIDMap.end()) {
+                triangle.materialId = materialIDMap[objMaterialId];
+            } else {
+                triangle.materialId = geom.materialid;  // Default material ID
+            }
 
             // Assign vertex, normal, and UV indices
             for (size_t v = 0; v < 3; ++v) {
