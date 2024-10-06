@@ -10,7 +10,7 @@
 #include "tiny_gltf.h"
 #include "tiny_obj_loader.h"
 
-#define DEBUG 1
+#define DEBUG 0
 
 using namespace std;
 

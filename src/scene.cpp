@@ -92,9 +92,11 @@ void Scene::loadFromJSON(const std::string& jsonName)
         MatNameToID[name] = materials.size();
         materials.emplace_back(newMaterial);
     }
+#if DEBUG
     for (const auto& pair : MatNameToID) {
         std::cout << "Material Name: " << pair.first << ", ID: " << pair.second << std::endl;
     }
+#endif
     const auto& objectsData = data["Objects"];
     for (const auto& p : objectsData)
     {
@@ -322,7 +324,7 @@ int Scene::loadObj(const string &fullPath, Geom &geom) {
     }
     geom.meshCount = triangles.size() - geom.meshStart;
 
-#ifdef DEBUG
+#if DEBUG
     std::cout << "Vertices: " << vertices.size() << std::endl;
     std::cout << "Normals: " << normals.size() << std::endl;
     std::cout << "UVs: " << uvs.size() << std::endl;
