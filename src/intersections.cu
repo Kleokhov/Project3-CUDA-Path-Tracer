@@ -119,25 +119,22 @@ __host__ __device__ bool intersectRayAABB(
 {
     glm::vec3 invDir = 1.0f / ray.direction;
 
-    float tminX = (minBounds.x - ray.origin.x) * invDir.x;
-    float tmaxX = (maxBounds.x - ray.origin.x) * invDir.x;
-    if (invDir.x < 0.0f) std::swap(tminX, tmaxX);
+    float t1 = (minBounds.x - ray.origin.x) * invDir.x;
+    float t2 = (maxBounds.x - ray.origin.x) * invDir.x;
+    float tmin = glm::min(t1, t2);
+    float tmax = glm::max(t1, t2);
 
-    float tminY = (minBounds.y - ray.origin.y) * invDir.y;
-    float tmaxY = (maxBounds.y - ray.origin.y) * invDir.y;
-    if (invDir.y < 0.0f) std::swap(tminY, tmaxY);
+    t1 = (minBounds.y - ray.origin.y) * invDir.y;
+    t2 = (maxBounds.y - ray.origin.y) * invDir.y;
+    tmin = glm::max(tmin, glm::min(glm::min(t1, t2), tmax));
+    tmax = glm::min(tmax, glm::max(glm::max(t1, t2), tmin));
 
-    float tminZ = (minBounds.z - ray.origin.z) * invDir.z;
-    float tmaxZ = (maxBounds.z - ray.origin.z) * invDir.z;
-    if (invDir.z < 0.0f) std::swap(tminZ, tmaxZ);
+    t1 = (minBounds.z - ray.origin.z) * invDir.z;
+    t2 = (maxBounds.z - ray.origin.z) * invDir.z;
+    tmin = glm::max(tmin, glm::min(glm::min(t1, t2), tmax));
+    tmax = glm::min(tmax, glm::max(glm::max(t1, t2), tmin));
 
-    float tmin = glm::max(glm::max(tminX, tminY), tminZ);
-    float tmax = glm::min(glm::min(tmaxX, tmaxY), tmaxZ);
-
-    // If tmax is less than tmin, no intersection occurs
-    if (tmax < tmin || tmax < 0) return false;
-
-    return true;
+    return tmax >= tmin && tmax >= 0.0f;
 }
 
 __host__ __device__ bool intersectRayTriangle(
@@ -155,7 +152,7 @@ __host__ __device__ bool intersectRayTriangle(
     glm::vec3 pvec = glm::cross(dir, v0v2);
     float det = glm::dot(v0v1, pvec);
 
-    // if the determinant is negative, the triangle is backfacing
+    // backface culling
     if (det < EPSILON) return false;
 
     // Ray and triangle are parallel if det is close to 0
@@ -244,5 +241,183 @@ __host__ __device__ float meshIntersectionTest(
     } else {
         return -1.0f;
     }
+}
+
+__host__ __device__ float meshIntersectionTestWithBVH(
+        const Geom& geom,
+        const Ray& ray,
+        glm::vec3& intersectionPoint,
+        glm::vec3& normal,
+        bool& outside,
+        const glm::vec3* vertices,
+        const glm::vec3* normals,
+        const glm::vec2* uvs,
+        const Triangle* triangles,
+        const BVHNode* bvhNodes) {
+
+    float t_min = FLT_MAX;
+    bool hit = false;
+    bool normalsExist = normals != nullptr && normals[0] != glm::vec3(0.0f);
+
+    // Precompute the inverse of the ray direction for efficient AABB tests
+    glm::vec3 invDir = 1.0f / ray.direction;
+    int dirIsNeg[3] = { invDir.x < 0, invDir.y < 0, invDir.z < 0 };
+
+    int nodesToVisit[64];
+    int toVisitOffset = 0;
+    nodesToVisit[toVisitOffset++] = geom.bvhRootIndex;
+
+    // BVH traversal loop
+    while (toVisitOffset > 0) {
+        int currentNodeIndex = nodesToVisit[--toVisitOffset];
+        const BVHNode* node = &bvhNodes[currentNodeIndex];
+
+        // Check if the ray intersects the node's bounding box
+        if (intersectRayAABB(ray, node->aabb.minBounds, node->aabb.maxBounds)) {
+            // Check if it's a leaf node
+            bool isLeaf = (node->leftChildIndex == -1) && (node->rightChildIndex == -1);
+            if (isLeaf) {
+                // Leaf node: intersect the ray with the triangles in this leaf
+                for (int i = 0; i < node->primitiveCount; ++i) {
+                    const Triangle& triangle = triangles[node->startIndex + i];
+
+                    glm::vec3 v0 = vertices[triangle.v[0]];
+                    glm::vec3 v1 = vertices[triangle.v[1]];
+                    glm::vec3 v2 = vertices[triangle.v[2]];
+
+                    float t, u, v;
+                    if (intersectRayTriangle(ray.origin, ray.direction, v0, v1, v2, t, u, v) && t > EPSILON) {
+                        if (t < t_min) {
+                            // Update the closest intersection
+                            t_min = t;
+                            intersectionPoint = ray.origin + t * ray.direction;
+
+                            if (normalsExist) {
+                                // Barycentric interpolation of vertex normals
+                                glm::vec3 n0 = normals[triangle.n[0]];
+                                glm::vec3 n1 = normals[triangle.n[1]];
+                                glm::vec3 n2 = normals[triangle.n[2]];
+                                normal = glm::normalize((1.0f - u - v) * n0 + u * n1 + v * n2);
+                            } else {
+                                // Flat shading: use face normal
+                                normal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
+                            }
+
+                            // Determine if the intersection is from the outside
+                            outside = glm::dot(ray.direction, normal) < 0.0f;
+                            if (!outside) {
+                                normal = -normal;
+                            }
+
+                            hit = true;
+                        }
+                    }
+                }
+            } else {
+                // Push children in order based on direction
+                if (dirIsNeg[node->axis]) {
+                    if (node->rightChildIndex != -1) {
+                        nodesToVisit[toVisitOffset++] = node->rightChildIndex;
+                    }
+                    if (node->leftChildIndex != -1) {
+                        nodesToVisit[toVisitOffset++] = node->leftChildIndex;
+                    }
+                } else {
+                    if (node->leftChildIndex != -1) {
+                        nodesToVisit[toVisitOffset++] = node->leftChildIndex;
+                    }
+                    if (node->rightChildIndex != -1) {
+                        nodesToVisit[toVisitOffset++] = node->rightChildIndex;
+                    }
+                }
+            }
+        }
+    }
+
+    return hit ? t_min : -1.0f;
+}
+
+__host__ __device__ float meshIntersectionTestWithLinearBVH(
+        const Geom& geom,
+        const Ray& ray,
+        glm::vec3& intersectionPoint,
+        glm::vec3& normal,
+        bool& outside,
+        const glm::vec3* vertices,
+        const glm::vec3* normals,
+        const glm::vec2* uvs,
+        const Triangle* triangles,
+        const LinearBVHNode* linearBVHNodes)
+{
+    float t_min = FLT_MAX;
+    bool hit = false;
+    bool normalsExist = normals != nullptr && normals[0] != glm::vec3(0.0f);
+
+    glm::vec3 invDir = 1.0f / ray.direction;
+    int dirIsNeg[3] = { invDir.x < 0, invDir.y < 0, invDir.z < 0 };
+
+    // Stack for traversal
+    int nodesToVisit[64];
+    int toVisitOffset = 0;
+
+    // Start traversal with the root node (index 0)
+    nodesToVisit[toVisitOffset++] = 0;
+
+    while (toVisitOffset > 0) {
+        int currentNodeIndex = nodesToVisit[--toVisitOffset];
+        const LinearBVHNode* node = &linearBVHNodes[currentNodeIndex];
+
+        // Test ray-box intersection
+        if (intersectRayAABB(ray, node->aabb.minBounds, node->aabb.maxBounds)) {
+            if (node->nPrimitives > 0) {
+                // If it's a leaf, test against all the triangles in the leaf
+                for (int i = 0; i < node->nPrimitives; ++i) {
+                    const Triangle& triangle = triangles[node->primitivesOffset + i];
+                    glm::vec3 v0 = vertices[triangle.v[0]];
+                    glm::vec3 v1 = vertices[triangle.v[1]];
+                    glm::vec3 v2 = vertices[triangle.v[2]];
+
+                    float t, u, v;
+                    if (intersectRayTriangle(ray.origin, ray.direction, v0, v1, v2, t, u, v) && t > EPSILON) {
+                        if (t < t_min) {
+                            // Update the closest intersection
+                            t_min = t;
+                            intersectionPoint = ray.origin + t * ray.direction;
+
+                            if (normalsExist) {
+                                // Barycentric interpolation of vertex normals
+                                glm::vec3 n0 = normals[triangle.n[0]];
+                                glm::vec3 n1 = normals[triangle.n[1]];
+                                glm::vec3 n2 = normals[triangle.n[2]];
+                                normal = glm::normalize((1.0f - u - v) * n0 + u * n1 + v * n2);
+                            } else {
+                                // Flat shading: use face normal
+                                normal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
+                            }
+
+                            // Determine if the intersection is from the outside
+                            outside = glm::dot(ray.direction, normal) < 0.0f;
+                            if (!outside) {
+                                normal = -normal;
+                            }
+
+                            hit = true;
+                        }
+                    }
+                }
+            } else {
+                // Otherwise, push children to the stack
+                if (dirIsNeg[node->axis]) {
+                    nodesToVisit[toVisitOffset++] = node->secondChildOffset;
+                    nodesToVisit[toVisitOffset++] = currentNodeIndex + 1;
+                } else {
+                    nodesToVisit[toVisitOffset++] = currentNodeIndex + 1;
+                    nodesToVisit[toVisitOffset++] = node->secondChildOffset;
+                }
+            }
+        }
+    }
+
+    return hit ? t_min : -1.0f;
 }
 

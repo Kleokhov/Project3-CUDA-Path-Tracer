@@ -92,9 +92,9 @@ void Scene::loadFromJSON(const std::string& jsonName)
         MatNameToID[name] = materials.size();
         materials.emplace_back(newMaterial);
     }
-//    for (const auto& pair : MatNameToID) {
-//        std::cout << "Material Name: " << pair.first << ", ID: " << pair.second << std::endl;
-//    }
+    for (const auto& pair : MatNameToID) {
+        std::cout << "Material Name: " << pair.first << ", ID: " << pair.second << std::endl;
+    }
     const auto& objectsData = data["Objects"];
     for (const auto& p : objectsData)
     {
@@ -283,6 +283,8 @@ int Scene::loadObj(const string &fullPath, Geom &geom) {
         );
     }
 
+    size_t triangleCount = 0;
+
     // Process triangles
     geom.meshStart = triangles.size();
     for (const auto& shape : objShapes) {
@@ -297,6 +299,7 @@ int Scene::loadObj(const string &fullPath, Geom &geom) {
                 continue;
             }
 
+            triangleCount++;
             Triangle triangle{};
             triangle.materialId = geom.materialid;
 
@@ -308,6 +311,14 @@ int Scene::loadObj(const string &fullPath, Geom &geom) {
                 triangle.uv[v] = (idx.texcoord_index >= 0) ? baseUVIndex + idx.texcoord_index : -1;
             }
 
+            // Compute the transformed triangle bounds
+            glm::vec3 v0 = vertices[triangle.v[0]];
+            glm::vec3 v1 = vertices[triangle.v[1]];
+            glm::vec3 v2 = vertices[triangle.v[2]];
+
+            triangle.aabb.minBounds = glm::min(glm::min(v0, v1), v2);
+            triangle.aabb.maxBounds = glm::max(glm::max(v0, v1), v2);
+
             triangles.emplace_back(triangle);
             indexOffset += fv;
         }
@@ -315,9 +326,129 @@ int Scene::loadObj(const string &fullPath, Geom &geom) {
     geom.meshCount = triangles.size() - geom.meshStart;
 
     // for debugging, print the sizes
+    std::cout << "Triangle count: " << triangleCount << std::endl;
     std::cout << "Vertices: " << vertices.size() << std::endl;
     std::cout << "Normals: " << normals.size() << std::endl;
     std::cout << "UVs: " << uvs.size() << std::endl;
+    std::cout << "meshes: " << geom.meshCount << std::endl;
+
+    // Build BVH
+    if (geom.meshCount > 0) {
+        // Build the BVH and store the root index in the geometry
+        buildAndFlattenBVH(geom.meshStart, geom.meshCount);
+        std::cout << "Built BVH with " << bvh.size() << " nodes." << std::endl;
+        std::cout << "BVH root index: " << geom.bvhRootIndex << std::endl;
+    }
 
     return 0;
 }
+
+int Scene::buildBVHRecursive(int start, int count, int depth) {
+    BVHNode node;
+
+    // Compute the bounding box of the current set of triangles based on transformed vertices
+    for (int i = start; i < start + count; ++i) {
+        node.aabb.minBounds = glm::min(node.aabb.minBounds, triangles[i].aabb.minBounds);
+        node.aabb.maxBounds = glm::max(node.aabb.maxBounds, triangles[i].aabb.maxBounds);
+    }
+
+    // determine leaf node
+    if (count == 1) {
+        node.startIndex = start;
+        node.primitiveCount = count;
+        node.leftChildIndex = -1;
+        node.rightChildIndex = -1;
+        bvh.push_back(node);
+        return bvh.size() - 1;
+    }
+
+    // Compute the bounding box of triangle centroids and choose split dimension (longest axis)
+    glm::vec3 centroidMin(FLT_MAX), centroidMax(-FLT_MAX);
+    for (int i = start; i < start + count; ++i) {
+        glm::vec3 centroid = (triangles[i].aabb.minBounds + triangles[i].aabb.maxBounds) * 0.5f;
+        centroidMin = glm::min(centroidMin, centroid);
+        centroidMax = glm::max(centroidMax, centroid);
+    }
+
+    // Determine the split axis (longest extent of centroid bounds)
+    int dim = 0;  // Default to x-axis
+    glm::vec3 extent = centroidMax - centroidMin;
+    if (extent.y > extent.x && extent.y > extent.z) dim = 1;  // y-axis
+    if (extent.z > extent.x && extent.z > extent.y) dim = 2;  // z-axis
+    // store axis
+    node.axis = dim;
+
+    // Partition primitives into two equally sized subsets along the chosen dimension
+    int mid = start + (count / 2);
+    std::nth_element(triangles.begin() + start, triangles.begin() + mid, triangles.begin() + start + count,
+                     [dim](const Triangle &a, const Triangle &b) {
+                         glm::vec3 centroidA = (a.aabb.minBounds + a.aabb.maxBounds) * 0.5f;
+                         glm::vec3 centroidB = (b.aabb.minBounds + b.aabb.maxBounds) * 0.5f;
+                         return centroidA[dim] < centroidB[dim];
+                     });
+
+    // Recursively build child nodes
+    int leftChildIndex = buildBVHRecursive(start, mid - start, depth + 1);
+    int rightChildIndex = buildBVHRecursive(mid, count - (mid - start), depth + 1);
+
+    // Set up the internal node
+    node.leftChildIndex = leftChildIndex;
+    node.rightChildIndex = rightChildIndex;
+    node.startIndex = -1;  // Internal nodes don't store triangle indices directly
+    node.primitiveCount = 0;  // Internal nodes don't store triangle counts directly
+
+    // Add the internal node to the BVH
+    bvh.push_back(node);
+    return bvh.size() - 1;
+}
+
+void Scene::buildAndFlattenBVH(int meshStart, int meshCount) {
+// Step 1: Build the hierarchical BVH
+    int bvhRoot = buildBVHRecursive(meshStart, meshCount, 0);
+    std::cout << "Built hierarchical BVH with " << bvh.size() << " nodes." << std::endl;
+
+    // Step 2: Preallocate the linear BVH array (the maximum number of nodes is 2 * primitives - 1)
+    linearBVH.resize(2 * meshCount - 1);
+
+    // Step 3: Flatten the BVH tree into the linear array
+    int offset = 0;
+    int root = flattenBVHTree(bvhRoot, &offset);
+
+    std::cout << "Flattened BVH into " << linearBVH.size() << " linear nodes." << std::endl;
+}
+
+int Scene::flattenBVHTree(int nodeIndex, int *offset) {
+    const BVHNode& node = bvh[nodeIndex];
+    LinearBVHNode& linearNode = linearBVH[*offset];
+
+    // Copy AABB to the linear node
+    linearNode.aabb = node.aabb;
+
+    // Store current offset and move to the next position in the linear array
+    int currentOffset = (*offset)++;
+
+    if (node.isLeaf()) {
+        // Leaf node: store the primitivesOffset and number of primitives
+        linearNode.primitivesOffset = node.startIndex;
+        linearNode.nPrimitives = node.primitiveCount;
+    } else {
+        // Interior node: store axis and number of primitives = 0
+        linearNode.axis = node.axis;
+        linearNode.nPrimitives = 0;
+
+        // Recursively flatten left child (it is stored immediately after the parent in the array)
+        flattenBVHTree(node.leftChildIndex, offset);
+
+        // Store the offset of the second child in the current linear node
+        linearNode.secondChildOffset = *offset;
+
+        // Recursively flatten the right child
+        flattenBVHTree(node.rightChildIndex, offset);
+    }
+
+    return currentOffset;
+}
+
+
+
+

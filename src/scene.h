@@ -19,6 +19,10 @@ private:
     void loadFromJSON(const std::string& jsonName);
     int loadObj(const std::string& fullPath, Geom& geom);
 
+    int buildBVHRecursive(int start, int count, int depth);
+    int flattenBVHTree(int nodeIndex, int* offset);
+    void buildAndFlattenBVH(int meshStart, int meshCount);
+
 public:
     Scene(string filename);
     ~Scene();
@@ -32,4 +36,6 @@ public:
     std::vector<glm::vec3> normals;
     std::vector<glm::vec2> uvs;
     std::vector<Triangle> triangles;
+    std::vector<BVHNode> bvh;
+    std::vector<LinearBVHNode> linearBVH;
 };

@@ -28,6 +28,9 @@
 // AABB Bounding test
 #define USE_AABB 1
 
+// BVH
+#define USE_BVH 1
+
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 #define checkCUDAError(msg) checkCUDAErrorFn(msg, FILENAME, __LINE__)
 void checkCUDAErrorFn(const char* msg, const char* file, int line)
@@ -115,6 +118,7 @@ static glm::vec3* dev_vertices = NULL;
 static glm::vec3* dev_normals = NULL;
 static glm::vec2* dev_uvs = NULL;
 static Triangle* dev_triangles = NULL;
+static LinearBVHNode* dev_linearBVHNodes = NULL;
 
 void InitDataContainer(GuiDataContainer* imGuiData)
 {
@@ -154,6 +158,11 @@ void pathtraceInit(Scene* scene)
     cudaMalloc(&dev_triangles, scene->triangles.size() * sizeof(Triangle));
     cudaMemcpy(dev_triangles, scene->triangles.data(), scene->triangles.size() * sizeof(Triangle), cudaMemcpyHostToDevice);
 
+#if USE_BVH
+    cudaMalloc(&dev_linearBVHNodes, scene->linearBVH.size() * sizeof(LinearBVHNode));
+    cudaMemcpy(dev_linearBVHNodes, scene->linearBVH.data(), scene->linearBVH.size() * sizeof(LinearBVHNode), cudaMemcpyHostToDevice);
+#endif
+
     checkCUDAError("pathtraceInit");
 }
 
@@ -169,6 +178,10 @@ void pathtraceFree()
     cudaFree(dev_normals);
     cudaFree(dev_uvs);
     cudaFree(dev_triangles);
+
+#if USE_BVH
+    cudaFree(dev_linearBVHNodes);
+#endif
 
     checkCUDAError("pathtraceFree");
 }
@@ -239,7 +252,8 @@ __global__ void computeIntersections(
     glm::vec3* vertices,
     glm::vec3* normals,
     glm::vec2* uvs,
-    Triangle* triangles)
+    Triangle* triangles,
+    LinearBVHNode* linearBVHNodes)
 {
     int path_index = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -274,12 +288,24 @@ __global__ void computeIntersections(
                 t = sphereIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, tmp_outside);
             } else if (geom.type == MESH)
             {
+#if USE_BVH
+                t = meshIntersectionTestWithLinearBVH(geom,
+                                         pathSegment.ray,
+                                         tmp_intersect,
+                                         tmp_normal,
+                                         tmp_outside,
+                                         vertices,
+                                         normals,
+                                         uvs,
+                                         triangles,
+                                         linearBVHNodes);
+#else
                 // AABB Bounding test
-                if (USE_AABB) {
-                    if (!intersectRayAABB(pathSegment.ray, geom.minBounds, geom.maxBounds)) {
-                        continue;
-                    }
-                }
+//                if (USE_AABB) {
+//                    if (!intersectRayAABB(pathSegment.ray, geom.minBounds, geom.maxBounds)) {
+//                        continue;
+//                    }
+//                }
 
                 t = meshIntersectionTest(geom,
                                          pathSegment.ray,
@@ -290,6 +316,7 @@ __global__ void computeIntersections(
                                          normals,
                                          uvs,
                                          triangles);
+#endif
             }
 
             // Compute the minimum t from the intersection tests to determine what
@@ -510,7 +537,8 @@ void pathtrace(uchar4* pbo, int frame, int iter)
             dev_vertices,
             dev_normals,
             dev_uvs,
-            dev_triangles
+            dev_triangles,
+            dev_linearBVHNodes
         );
         checkCUDAError("trace one bounce");
         cudaDeviceSynchronize();

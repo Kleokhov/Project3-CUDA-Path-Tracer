@@ -6,6 +6,8 @@
 #include "sceneStructs.h"
 #include "utilities.h"
 
+#define STACK_SIZE 64
+
 /**
  * Handy-dandy hash function that provides seeds for random number generation.
  */
@@ -97,3 +99,27 @@ __host__ __device__ float meshIntersectionTest(
         const glm::vec3* normals,
         const glm::vec2* uvs,
         const Triangle* triangles);
+
+__host__ __device__ float meshIntersectionTestWithBVH(
+        const Geom& geom,
+        const Ray& ray,
+        glm::vec3& intersectionPoint,
+        glm::vec3& normal,
+        bool& outside,
+        const glm::vec3* vertices,
+        const glm::vec3* normals,
+        const glm::vec2* uvs,
+        const Triangle* triangles,
+        const BVHNode* bvhNodes);
+
+__host__ __device__ float meshIntersectionTestWithLinearBVH(
+        const Geom& geom,
+        const Ray& ray,
+        glm::vec3& intersectionPoint,
+        glm::vec3& normal,
+        bool& outside,
+        const glm::vec3* vertices,
+        const glm::vec3* normals,
+        const glm::vec2* uvs,
+        const Triangle* triangles,
+        const LinearBVHNode* linearBVHNodes);

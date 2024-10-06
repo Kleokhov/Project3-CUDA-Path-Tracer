@@ -36,6 +36,7 @@ struct Geom
     int meshCount;
     glm::vec3 minBounds;
     glm::vec3 maxBounds;
+    int bvhRootIndex = -1;
 };
 
 struct Material
@@ -100,9 +101,44 @@ struct ShadeableIntersection
     glm::vec3 intersectionPoint;
 };
 
+struct AABB {
+    glm::vec3 minBounds = glm::vec3(FLT_MAX);
+    glm::vec3 maxBounds = glm::vec3(-FLT_MAX);
+};
+
 struct Triangle {
     int v[3];
     int n[3];
     int uv[3];
     int materialId;
+
+    AABB aabb;
+};
+
+struct BVHNode {
+    AABB aabb;
+    int startIndex = -1;
+    int leftChildIndex = -1;
+    int rightChildIndex = -1;
+    int primitiveCount;
+    int axis = -1;
+
+    bool isLeaf() const {
+        return leftChildIndex == -1 && rightChildIndex == -1;
+    }
+};
+
+struct LinearBVHNode {
+    AABB aabb;
+    union {
+        int primitivesOffset;
+        int secondChildOffset;
+    };
+    int nPrimitives;
+    int axis;
+    int pad;
+
+    __host__ __device__ bool isLeaf() const {
+        return nPrimitives > 0;
+    }
 };
