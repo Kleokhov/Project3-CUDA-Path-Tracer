@@ -12,6 +12,8 @@
 
 #define DEBUG 1
 
+#define MAX_DEPTH 10
+
 using namespace std;
 
 class Scene
@@ -22,6 +24,7 @@ private:
     int loadGlTF(const string &fullPath, Geom &geom);
     int loadObj(const std::string& fullPath, Geom& geom);
 
+    void buildBVH();
     int buildBVHRecursive(int start, int count, int depth);
     int flattenBVHTree(int nodeIndex, int* offset);
 

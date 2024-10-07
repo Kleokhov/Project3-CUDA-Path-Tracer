@@ -154,19 +154,7 @@ void Scene::loadFromJSON(const std::string& jsonName)
     }
 
     // Build Linear BVH
-    if (!triangles.empty()) {
-        // Build the hierarchical BVH for all triangles
-        int bvhRoot = buildBVHRecursive(0, triangles.size(), 0);
-        std::cout << "Built hierarchical BVH with " << bvh.size() << " nodes." << std::endl;
-
-        // Preallocate the linear BVH array
-        linearBVH.resize(2 * triangles.size() - 1);
-
-        // Flatten the hierarchical BVH into the linear BVH
-        int offset = 0;
-        flattenBVHTree(bvhRoot, &offset);
-        std::cout << "Flattened BVH into " << linearBVH.size() << " linear nodes." << std::endl;
-    }
+    buildBVH();
 
     const auto& cameraData = data["Camera"];
     Camera& camera = state.camera;
@@ -251,23 +239,23 @@ int Scene::loadGlTF(const string &fullPath, Geom &geom) {
             tinygltf::ColorValue colorValues = baseColor.ColorFactor();
 
             material.color = glm::vec3(
-                    static_cast<float>(colorValues[0]),  // R
-                    static_cast<float>(colorValues[1]),  // G
-                    static_cast<float>(colorValues[2])   // B
+                    static_cast<float>(colorValues[0]),
+                    static_cast<float>(colorValues[1]),
+                    static_cast<float>(colorValues[2])
             );
         } else {
-            material.color = glm::vec3(1.0f);  // Default to white if no base color is specified
+            material.color = glm::vec3(1.0f);
         }
 
-        // Handle emission (if present)
+        // Handle emission
         if (gltfMaterial.additionalValues.find("emissiveFactor") != gltfMaterial.additionalValues.end()) {
             const tinygltf::Parameter& emissiveColor = gltfMaterial.additionalValues.at("emissiveFactor");
             tinygltf::ColorValue emissiveValues = emissiveColor.ColorFactor();
 
             material.emittance = glm::length(glm::vec3(
-                    static_cast<float>(emissiveValues[0]),  // R
-                    static_cast<float>(emissiveValues[1]),  // G
-                    static_cast<float>(emissiveValues[2])   // B
+                    static_cast<float>(emissiveValues[0]),
+                    static_cast<float>(emissiveValues[1]),
+                    static_cast<float>(emissiveValues[2])
             ));
         } else {
             material.emittance = 0.0f;
@@ -641,6 +629,21 @@ int Scene::loadObj(const string &fullPath, Geom &geom) {
     return 0;
 }
 
+void Scene::buildBVH() {
+    if (!triangles.empty()) {
+        // Build the hierarchical BVH for all triangles
+        int bvhRoot = buildBVHRecursive(0, triangles.size(), 0);
+        std::cout << "Built hierarchical BVH with " << bvh.size() << " nodes." << std::endl;
+
+        linearBVH.resize(bvh.size());
+
+        // Flatten the hierarchical BVH into the linear BVH
+        int offset = 0;
+        flattenBVHTree(bvhRoot, &offset);
+        std::cout << "Flattened BVH into " << linearBVH.size() << " linear nodes." << std::endl;
+    }
+}
+
 int Scene::buildBVHRecursive(int start, int count, int depth) {
     BVHNode node;
 
@@ -669,7 +672,7 @@ int Scene::buildBVHRecursive(int start, int count, int depth) {
     node.axis = dim;
 
     // determine leaf node
-    if (count <= 4 || centroidBounds.maxBounds[dim] == centroidBounds.minBounds[dim]) {
+    if (count <= 4 || centroidBounds.maxBounds[dim] == centroidBounds.minBounds[dim] || depth >= MAX_DEPTH) {
         node.startIndex = start;
         node.primitiveCount = count;
         node.leftChildIndex = -1;

@@ -102,7 +102,7 @@
         },
         {
             "TYPE":"obj",
-            "FILE":"obj/modern chair 11 obj.obj",
+            "FILE":"obj/modern_chair_11_obj.obj",
             "MATERIAL":"diffuse_yellow",
             "TRANS": [ 1.0, 0.0, -1.0 ],
             "ROTAT": [ 0.0, 0.0, 0.0 ],
