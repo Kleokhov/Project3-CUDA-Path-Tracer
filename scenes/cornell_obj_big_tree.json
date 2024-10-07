@@ -51,7 +51,7 @@
         "FOVY":45.0,
         "ITERATIONS":5000,
         "DEPTH":8,
-        "FILE":"cornell_obj_tree",
+        "FILE":"cornell_obj_big_tree",
         "EYE":[0.0,5.0,10.5],
         "LOOKAT":[0.0,5.0,0.0],
         "UP":[0.0,1.0,0.0]
@@ -102,17 +102,9 @@
         },
         {
             "TYPE":"obj",
-            "FILE":"obj/Lowpoly_tree_sample.obj",
+            "FILE":"obj/Tree.obj",
             "MATERIAL":"diffuse_green",
-            "TRANS": [ -1.0, 0.0, -1.0 ],
-            "ROTAT": [ 0.0, 0.0, 0.0 ],
-            "SCALE": [ 0.2, 0.2, 0.2 ]
-        },
-        {
-            "TYPE":"obj",
-            "FILE":"obj/gourd.obj",
-            "MATERIAL":"diffuse_blue",
-            "TRANS": [ 2.5, 2.0, 1.0 ],
+            "TRANS": [ -2.0, 0.0, 1.0 ],
             "ROTAT": [ 0.0, 0.0, 0.0 ],
             "SCALE": [ 1.0, 1.0, 1.0 ]
         }

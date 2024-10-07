@@ -79,15 +79,19 @@ Setting roughness to be 0.1, 0.5, and 0.9 respectively:
 ![imperfect specular reflection](img/cornell_test.2024-10-07_02-48-37z.5000samp.png)
 
 ### Refraction with Fresnel Effects
-A perfect specular sphere on the left, a glass sphere on the right, and water ground:
+A perfect specular sphere on the left, a glass sphere on the right, and refractive ground:
+![refraction with fresnel effects](img/cornell_refraction.2024-10-07_03-01-31z.5000samp.png)
 
 ### Depth of Field
+![depth of field](img/cornell_dof.2024-10-07_03-12-24z.5000samp.png)
 
 ### glTF Mesh Loading
 
 ### obj Mesh Loading
+![obj mesh loading](img/cornell_obj_tree_chair.2024-10-06_08-11-17z.5000samp.png)
 
 ### OIDN Denoising
+
 
 ## Performance Analysis
 We will now analyze the performance of the ray tracer with different features/optimizations enabled.
@@ -123,3 +127,4 @@ website documentation/guide for libraries or videos/stackOverflow. Here is a det
 - [Russian Roulette (PBRTv4 14.5.4)](https://www.pbr-book.org/3ed-2018/Light_Transport_I_Surface_Reflection/Path_Tracing)
 - [BVH (PBRTv4 4.3)](https://pbr-book.org/3ed-2018/Primitives_and_Intersection_Acceleration/Bounding_Volume_Hierarchies#BVHAccel::recursiveBuild)
 - [Open Image Denoiser](https://www.openimagedenoise.org/)
+- 

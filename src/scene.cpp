@@ -592,7 +592,7 @@ int Scene::loadObj(const string &fullPath, Geom &geom) {
             if (materialIDMap.find(objMaterialId) != materialIDMap.end()) {
                 triangle.materialId = materialIDMap[objMaterialId];
             } else {
-                triangle.materialId = geom.materialid;  // Default material ID
+                triangle.materialId = geom.materialid;
             }
 
             // Assign vertex, normal, and UV indices

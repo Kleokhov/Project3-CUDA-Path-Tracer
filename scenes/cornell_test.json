@@ -22,27 +22,23 @@
             "TYPE":"Diffuse",
             "RGB":[0.35, 0.85, 0.35]
         },
-        "diffuse_blue":
+        "specular_white_0.1":
         {
-            "TYPE": "Diffuse",
-            "RGB": [0.35, 0.35, 0.85]
+            "TYPE":"Specular",
+            "RGB":[0.98, 0.98, 0.98],
+            "ROUGHNESS":0.1
         },
-        "diffuse_yellow":
-        {
-            "TYPE":"Diffuse",
-            "RGB":[0.85, 0.85, 0.35]
-        },
-        "specular_white":
+        "specular_white_0.5":
         {
             "TYPE":"Specular",
             "RGB":[0.98, 0.98, 0.98],
             "ROUGHNESS":0.5
         },
-        "specular_red":
+        "specular_white_0.9":
         {
             "TYPE":"Specular",
-            "RGB":[0.85, 0.35, 0.35],
-            "ROUGHNESS":0.0
+            "RGB":[0.98, 0.98, 0.98],
+            "ROUGHNESS":0.9
         }
     },
     "Camera":
@@ -51,7 +47,7 @@
         "FOVY":45.0,
         "ITERATIONS":5000,
         "DEPTH":8,
-        "FILE":"cornell_obj_tree",
+        "FILE":"cornell_test",
         "EYE":[0.0,5.0,10.5],
         "LOOKAT":[0.0,5.0,0.0],
         "UP":[0.0,1.0,0.0]
@@ -101,20 +97,25 @@
             "SCALE":[0.01,10.0,10.0]
         },
         {
-            "TYPE":"obj",
-            "FILE":"obj/Lowpoly_tree_sample.obj",
-            "MATERIAL":"diffuse_green",
-            "TRANS": [ -1.0, 0.0, -1.0 ],
-            "ROTAT": [ 0.0, 0.0, 0.0 ],
-            "SCALE": [ 0.2, 0.2, 0.2 ]
+            "TYPE":"sphere",
+            "MATERIAL":"specular_white_0.1",
+            "TRANS":[-2.5,4.0,-1.0],
+            "ROTAT":[0.0,0.0,0.0],
+            "SCALE":[3.0,3.0,3.0]
         },
         {
-            "TYPE":"obj",
-            "FILE":"obj/gourd.obj",
-            "MATERIAL":"diffuse_blue",
-            "TRANS": [ 2.5, 2.0, 1.0 ],
-            "ROTAT": [ 0.0, 0.0, 0.0 ],
-            "SCALE": [ 1.0, 1.0, 1.0 ]
+            "TYPE":"sphere",
+            "MATERIAL":"specular_white_0.5",
+            "TRANS":[0.0,2.0,1.5],
+            "ROTAT":[0.0,0.0,0.0],
+            "SCALE":[3.0,3.0,3.0]
+        },
+        {
+            "TYPE":"sphere",
+            "MATERIAL":"specular_white_0.9",
+            "TRANS":[2.5,4.0,-1.0],
+            "ROTAT":[0.0,0.0,0.0],
+            "SCALE":[3.0,3.0,3.0]
         }
     ]
 }
