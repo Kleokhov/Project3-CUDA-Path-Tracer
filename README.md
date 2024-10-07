@@ -68,17 +68,45 @@ to denoise the image once the ray tracing is done or after a few iterations.
 ## Visual Outcomes
 
 ### Diffusion
+Diffusion can also be thought as roughness == 1.0.
+![diffusion](img/cornell_test.2024-10-07_02-23-04z.5000samp.png)
+
+### Perfect Specular Reflection
+![perfect specular reflection](img/cornell_test.2024-10-07_02-35-22z.5000samp.png)
+
+### Imperfect Specular Reflection (Adjustable Roughness)
+Setting roughness to be 0.1, 0.5, and 0.9 respectively:
+![imperfect specular reflection](img/cornell_test.2024-10-07_02-48-37z.5000samp.png)
+
+### Refraction with Fresnel Effects
+A perfect specular sphere on the left, a glass sphere on the right, and water ground:
+
+### Depth of Field
+
+### glTF Mesh Loading
+
+### obj Mesh Loading
+
+### OIDN Denoising
 
 ## Performance Analysis
 We will now analyze the performance of the ray tracer with different features/optimizations enabled.
 
 ### Stream Compaction
+For stream compaction, we will compare the performance with and without stream compaction, as well as the performance 
+change with different kernel sizes.
 
 ### Material Sorting
+For material sorting, we will compare the performance with and without material sorting.
 
 ### Russian Roulette Path Termination
+For Russian Roulette Path Termination, we will compare the performance with and without Russian Roulette Path Termination.
 
 ### Hierarchical Bounding Volume Hierarchy (BVH)
+For BVH, we will compare the performance with and without BVH.
+
+### Open/Close Scene Comparison
+For Open/Close Scene Comparison, we will compare the performance in an enclosed scene and an open scene.
 
 
 ## References

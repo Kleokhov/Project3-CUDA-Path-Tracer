@@ -92,6 +92,7 @@ static LinearBVHNode* dev_linearBVHNodes = NULL;
 #if USE_OIDN
 static glm::vec3* dev_oidn_albedo = NULL;
 static glm::vec3* dev_oidn_normal = NULL;
+oidn::DeviceRef device;
 #endif
 
 void InitDataContainer(GuiDataContainer* imGuiData)
@@ -143,6 +144,9 @@ void pathtraceInit(Scene* scene)
 
     cudaMalloc(&dev_oidn_normal, pixelcount * sizeof(glm::vec3));
     cudaMemset(dev_oidn_normal, 0, pixelcount * sizeof(glm::vec3));
+
+    device = oidn::newDevice();
+    device.commit();
 #endif
 
     checkCUDAError("pathtraceInit");
@@ -208,12 +212,6 @@ void pathtraceFree()
 //}
 
 void oidnDenoise() {
-    // Create an Open Image Denoise device
-    oidn::DeviceRef device = oidn::newDevice();
-    device.commit();
-
-    printf("Denoising...\n");
-
     // Retrieve image dimensions
     int width = hst_scene->state.camera.resolution.x;
     int height = hst_scene->state.camera.resolution.y;
