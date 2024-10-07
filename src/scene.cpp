@@ -231,9 +231,10 @@ int Scene::loadGlTF(const string &fullPath, Geom &geom) {
     std::unordered_map<int, int> materialIDMap;
     for (size_t i = 0; i < model.materials.size(); ++i) {
         const tinygltf::Material& gltfMaterial = model.materials[i];
-        Material material{};
 
-        // Extract base color factor from pbrMetallicRoughness
+        // Initialize with geom's material
+        Material material = materials[geom.materialid];
+
         if (gltfMaterial.values.find("baseColorFactor") != gltfMaterial.values.end()) {
             const tinygltf::Parameter& baseColor = gltfMaterial.values.at("baseColorFactor");
             tinygltf::ColorValue colorValues = baseColor.ColorFactor();
@@ -243,11 +244,8 @@ int Scene::loadGlTF(const string &fullPath, Geom &geom) {
                     static_cast<float>(colorValues[1]),
                     static_cast<float>(colorValues[2])
             );
-        } else {
-            material.color = glm::vec3(1.0f);
         }
 
-        // Handle emission
         if (gltfMaterial.additionalValues.find("emissiveFactor") != gltfMaterial.additionalValues.end()) {
             const tinygltf::Parameter& emissiveColor = gltfMaterial.additionalValues.at("emissiveFactor");
             tinygltf::ColorValue emissiveValues = emissiveColor.ColorFactor();
@@ -257,8 +255,17 @@ int Scene::loadGlTF(const string &fullPath, Geom &geom) {
                     static_cast<float>(emissiveValues[1]),
                     static_cast<float>(emissiveValues[2])
             ));
-        } else {
-            material.emittance = 0.0f;
+        }
+
+        if (gltfMaterial.values.find("roughnessFactor") != gltfMaterial.values.end()) {
+            material.roughness = static_cast<float>(gltfMaterial.values.at("roughnessFactor").Factor());
+        }
+
+        if (gltfMaterial.values.find("metallicFactor") != gltfMaterial.values.end()) {
+            float metallic = static_cast<float>(gltfMaterial.values.at("metallicFactor").Factor());
+            if (metallic > 0.0f) {
+                material.hasReflective = metallic;
+            }
         }
 
         int materialID = materials.size();
@@ -488,9 +495,9 @@ int Scene::loadObj(const string &fullPath, Geom &geom) {
     uvs.reserve(uvs.size() + numTexcoords);
 
     // Store the base indices before adding new elements
-    size_t baseVertexIndex = static_cast<int>(vertices.size());
-    size_t baseNormalIndex = static_cast<int>(normals.size());
-    size_t baseUVIndex = static_cast<int>(uvs.size());
+    size_t baseVertexIndex = vertices.size();
+    size_t baseNormalIndex = normals.size();
+    size_t baseUVIndex = uvs.size();
 
     // Process and transform vertices
     for (size_t i = 0; i < numVertices; ++i) {
@@ -533,33 +540,46 @@ int Scene::loadObj(const string &fullPath, Geom &geom) {
     std::unordered_map<int, int> materialIDMap;
     for (size_t i = 0; i < objMaterials.size(); ++i) {
         const tinyobj::material_t& objMaterial = objMaterials[i];
-        Material material;
 
-        // Set diffuse color
-        material.color = glm::vec3(
+        // Initialize with geom's material
+        Material material = materials[geom.materialid];
+
+        // Overwrite diffuse color if defined (non-zero)
+        glm::vec3 diffuseColor(
                 objMaterial.diffuse[0],
                 objMaterial.diffuse[1],
-                objMaterial.diffuse[2]);
+                objMaterial.diffuse[2]
+        );
+        if (glm::length(diffuseColor) > 0.0f) {
+            material.color = diffuseColor;
+        }
 
-        // Set specular color and exponent (shininess)
-        material.specular.color = glm::vec3(
+        // Overwrite specular color if defined
+        glm::vec3 specularColor(
                 objMaterial.specular[0],
                 objMaterial.specular[1],
-                objMaterial.specular[2]);
-        material.specular.exponent = objMaterial.shininess;
+                objMaterial.specular[2]
+        );
+        if (glm::length(specularColor) > 0.0f) {
+            material.specular.color = specularColor;
+            material.hasReflective = 1.0f;
+        }
 
-        // Reflectivity and refractivity
-        material.hasReflective = objMaterial.shininess > 0.0f ? 1.0f : 0.0f;
-        material.hasRefractive = 0.0f;
-        material.indexOfRefraction = 1.0f;
+        // Overwrite shininess (specular exponent) if defined
+        if (objMaterial.shininess > 0.0f) {
+            material.specular.exponent = objMaterial.shininess;
+            material.roughness = 1.0f - objMaterial.shininess;
+        }
 
-        // Emittance for light materials
-        material.emittance = glm::length(glm::vec3(
+        // Overwrite emittance if defined
+        glm::vec3 emissionColor(
                 objMaterial.emission[0],
                 objMaterial.emission[1],
-                objMaterial.emission[2])) > 0.0f ? 1.0f : 0.0f;
-
-        material.roughness = 1.0f - objMaterial.shininess;
+                objMaterial.emission[2]
+        );
+        if (glm::length(emissionColor) > 0.0f) {
+            material.emittance = glm::length(emissionColor);
+        }
 
         // Add the material to the materials vector and map the OBJ material ID to our internal material ID
         int materialID = materials.size();
@@ -581,7 +601,7 @@ int Scene::loadObj(const string &fullPath, Geom &geom) {
             // Only support triangular faces
             if (fv != 3) {
                 std::cerr << "Error: Only triangular faces are supported. "
-                             "Skipping face " << f << " in shape." << std::endl;
+                          << "Skipping face " << f << " in shape." << std::endl;
                 indexOffset += fv;
                 continue;
             }
@@ -600,8 +620,12 @@ int Scene::loadObj(const string &fullPath, Geom &geom) {
                 const tinyobj::index_t& idx = shape.mesh.indices[indexOffset + v];
 
                 triangle.v[v] = static_cast<int>(baseVertexIndex) + idx.vertex_index;
-                triangle.n[v] = (idx.normal_index >= 0) ? (static_cast<int>(baseNormalIndex) + idx.normal_index) : -1;
-                triangle.uv[v] = (idx.texcoord_index >= 0) ? (static_cast<int>(baseUVIndex) + idx.texcoord_index) : -1;
+                triangle.n[v] = (idx.normal_index >= 0)
+                                ? (static_cast<int>(baseNormalIndex) + idx.normal_index)
+                                : -1;
+                triangle.uv[v] = (idx.texcoord_index >= 0)
+                                 ? (static_cast<int>(baseUVIndex) + idx.texcoord_index)
+                                 : -1;
             }
 
             glm::vec3 v0 = vertices[triangle.v[0]];
@@ -615,9 +639,9 @@ int Scene::loadObj(const string &fullPath, Geom &geom) {
 
             triangles.emplace_back(triangle);
             indexOffset += fv;
+            geom.meshCount++;
         }
     }
-    geom.meshCount = triangles.size() - geom.meshStart;
 
 #if DEBUG
     std::cout << "Vertices: " << vertices.size() << std::endl;
@@ -628,6 +652,7 @@ int Scene::loadObj(const string &fullPath, Geom &geom) {
 
     return 0;
 }
+
 
 void Scene::buildBVH() {
     if (!triangles.empty()) {
