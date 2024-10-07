@@ -29,6 +29,10 @@
 // BVH
 #define USE_BVH 1
 
+// OIDA
+#define USE_OIDN 1
+#define DENOISE_INTERVAL 500
+
 void InitDataContainer(GuiDataContainer* guiData);
 void pathtraceInit(Scene *scene);
 void pathtraceFree();
