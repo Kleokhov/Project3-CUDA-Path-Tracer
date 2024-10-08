@@ -100,24 +100,83 @@ A perfect specular sphere on the left, a glass sphere on the right, and refracti
 | ![before denoising](img/cornell_obj_tree_chair.2024-10-06_08-11-17z.5000samp.png) | ![after denoising](img/cornell_obj_tree_chair.2024-10-08_09-36-29z.5000samp.png) |
 
 ## Performance Analysis
-We will now analyze the performance of the ray tracer with different features/optimizations enabled.
+We will now analyze the performance of the ray tracer with different features/optimizations enabled. The scene used for 
+performance analysis is the standard Cornell Box with a perfect specular sphere in it. To get a sense of how it looks 
+like, please refer to the Perfect Specular Reflection image above. The default kernel test size is 128.
 
 ### Stream Compaction
 For stream compaction, we will compare the performance with and without stream compaction, the performance 
-change with different kernel sizes, and the performance change within a single iteration.
+change with different kernel sizes, and the performance change within a single iteration. For testing purposes, we limit 
+the number of iterations to 500.
+
+Before testing, our hypothesis is that enabling stream compaction will indeed increase the performance of the ray tracer 
+if not significantly. This is because stream compaction will remove the terminated rays, which will reduce the number of 
+threads that need to be processed in the next iteration.
+
+#### Performance Change with on/off
+
+|             | Stream Compaction Enabled | Stream Compaction Disabled |
+|-------------|---------------------------|----------------------------|
+| Average FPS | 9.31167                   | 4.73829                    |
+
+As we can see from the table above, enabling stream compaction increases the performance of the ray tracer by almost 
+100%. We can see that stream compaction is a very important optimization for the ray tracer.
+
+#### Performance with different kernel sizes
+![kernel_size graph](img/Figure_3.png)
+
+From the graph, we can see that when kernel size is 16, the performance is the best. This is because the number of 
+divergence within kernel execution may increase as the kernel size increases - as we can see from the code, we are 
+using a lot of if-else statements, so the divergence may be significant. The performance difference increases 
+a bit when the kernel size is 128, which may indicate that kernel size 128 may be able to utilize the GPU better than 
+other kernel sizes as 64 or 256.
+
+#### Performance within a Single Iteration
+![singe iteration graph](img/Figure_2.png)
+
+As we can see, as the bounce number increases, the number of paths decreases as well as time passed per bounce. This 
+shows that the effect of stream compaction is more significant as the number of bounces increases.
 
 ### Material Sorting
-For material sorting, we will compare the performance with and without material sorting.
+For material sorting, we will compare the performance with and without material sorting. Our hypothesis is that 
+enabling material sorting will increase the performance of the ray tracer, but if there are only a few materials, the 
+overhead of sorting may not be worth it.
+
+When we test the performance on the default scene, we got:
+|             | Material Sorting Enabled | Material Sorting Disabled |
+|-------------|--------------------------|---------------------------|
+| Average FPS | 9.33258                  | 17.0346                   |
+
+When we test the performance on the title image scene, we got:
+|             | Material Sorting Enabled | Material Sorting Disabled |
+|-------------|--------------------------|---------------------------|
+| Average FPS | 4.84631                  | 4.78012                   |
+
+From the results, we can see that enabling material sorting does not significantly increase the performance of the ray 
+tracer. This may be caused by the fact that the overhead of sorting is really large compared to the performance 
+increase.
 
 ### Russian Roulette Path Termination
 For Russian Roulette Path Termination, we will compare the performance with and without Russian Roulette Path Termination.
 
+|             | Russian Roulette Enabled | Russian Roulette Disabled |
+|-------------|--------------------------|---------------------------|
+| Average FPS | 9.04456                  | 8.25438                   |
+
+We can see that enabling Russian Roulette Path Termination increases the performance of the ray tracer, but also not by 
+a significant amount.
+
 ### Hierarchical Bounding Volume Hierarchy (BVH)
-For BVH, we will compare the performance with and without BVH.
+For BVH, we will compare the performance with and without BVH. The test scene is the scene with only an obj tree. We 
+use this simple mesh loading scene because of the hardware limitation - having more complex scenes will make the scene 
+completely unrenderable (really really slow).
 
-### Open/Close Scene Comparison
-For Open/Close Scene Comparison, we will compare the performance in an enclosed scene and an open scene.
+|             | BVH Enabled | BVH Disabled |
+|-------------|-------------|--------------|
+| Average FPS | 10.8595     | 7.79822      |
 
+We can see that enabling BVH increases the performance of the ray tracer by a significant amount. This is because BVH is 
+really useful for accelerating the intersection process for mesh objects.
 
 ## References
 Many of the features were implemented with the help of Physically Based Rendering: From Theory to Implementation (PBRT), 
