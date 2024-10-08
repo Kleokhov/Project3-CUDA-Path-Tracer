@@ -548,47 +548,47 @@ int Scene::loadObj(const string &fullPath, Geom &geom) {
         // Initialize with geom's material
         Material material = materials[geom.materialid];
 
-//        // Overwrite diffuse color if defined (non-zero)
-//        glm::vec3 diffuseColor(
-//                objMaterial.diffuse[0],
-//                objMaterial.diffuse[1],
-//                objMaterial.diffuse[2]
-//        );
-//        if (glm::length(diffuseColor) > 0.0f) {
-//            material.color = diffuseColor;
-//        }
-//
-//        // Overwrite specular color if defined
-//        glm::vec3 specularColor(
-//                objMaterial.specular[0],
-//                objMaterial.specular[1],
-//                objMaterial.specular[2]
-//        );
-//        if (glm::length(specularColor) > 0.0f) {
-//            material.specular.color = specularColor;
-//            material.hasReflective = 1.0f;
-//        }
-//
-//        // Overwrite shininess (specular exponent) if defined
-//        if (objMaterial.shininess > 0.0f) {
-//            material.specular.exponent = objMaterial.shininess;
-//            material.roughness = 1.0f - objMaterial.shininess;
-//        }
-//
-//        // Overwrite emittance if defined
-//        glm::vec3 emissionColor(
-//                objMaterial.emission[0],
-//                objMaterial.emission[1],
-//                objMaterial.emission[2]
-//        );
-//        if (glm::length(emissionColor) > 0.0f) {
-//            material.emittance = glm::length(emissionColor);
-//        }
-//
-//        // Add the material to the materials vector and map the OBJ material ID to our internal material ID
-//        int materialID = materials.size();
-//        materials.push_back(material);
-//        materialIDMap[i] = materialID;
+        // Overwrite diffuse color if defined (non-zero)
+        glm::vec3 diffuseColor(
+                objMaterial.diffuse[0],
+                objMaterial.diffuse[1],
+                objMaterial.diffuse[2]
+        );
+        if (glm::length(diffuseColor) > 0.0f) {
+            material.color = diffuseColor;
+        }
+
+        // Overwrite specular color if defined
+        glm::vec3 specularColor(
+                objMaterial.specular[0],
+                objMaterial.specular[1],
+                objMaterial.specular[2]
+        );
+        if (glm::length(specularColor) > 0.0f) {
+            material.specular.color = specularColor;
+            material.hasReflective = 1.0f;
+        }
+
+        // Overwrite shininess (specular exponent) if defined
+        if (objMaterial.shininess > 0.0f) {
+            material.specular.exponent = objMaterial.shininess;
+            material.roughness = 1.0f - objMaterial.shininess;
+        }
+
+        // Overwrite emittance if defined
+        glm::vec3 emissionColor(
+                objMaterial.emission[0],
+                objMaterial.emission[1],
+                objMaterial.emission[2]
+        );
+        if (glm::length(emissionColor) > 0.0f) {
+            material.emittance = glm::length(emissionColor);
+        }
+
+        // Add the material to the materials vector and map the OBJ material ID to our internal material ID
+        int materialID = materials.size();
+        materials.push_back(material);
+        materialIDMap[i] = materialID;
     }
 
     geom.meshStart = triangles.size();
