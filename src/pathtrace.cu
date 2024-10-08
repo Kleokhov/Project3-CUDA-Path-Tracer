@@ -88,12 +88,11 @@ static glm::vec3* dev_normals = NULL;
 static glm::vec2* dev_uvs = NULL;
 static Triangle* dev_triangles = NULL;
 static LinearBVHNode* dev_linearBVHNodes = NULL;
+static BVHNode* dev_bvhNodes = NULL;
 
-#if USE_OIDN
 static glm::vec3* dev_oidn_albedo = NULL;
 static glm::vec3* dev_oidn_normal = NULL;
 oidn::DeviceRef device;
-#endif
 
 void InitDataContainer(GuiDataContainer* imGuiData)
 {
@@ -136,6 +135,9 @@ void pathtraceInit(Scene* scene)
 #if USE_BVH
     cudaMalloc(&dev_linearBVHNodes, scene->linearBVH.size() * sizeof(LinearBVHNode));
     cudaMemcpy(dev_linearBVHNodes, scene->linearBVH.data(), scene->linearBVH.size() * sizeof(LinearBVHNode), cudaMemcpyHostToDevice);
+
+    cudaMalloc(&dev_bvhNodes, scene->bvh.size() * sizeof(BVHNode));
+    cudaMemcpy(dev_bvhNodes, scene->bvh.data(), scene->bvh.size() * sizeof(BVHNode), cudaMemcpyHostToDevice);
 #endif
 
 #if USE_OIDN
@@ -167,6 +169,7 @@ void pathtraceFree()
 
 #if USE_BVH
     cudaFree(dev_linearBVHNodes);
+    cudaFree(dev_bvhNodes);
 #endif
 
 #if USE_OIDN
@@ -333,6 +336,7 @@ __global__ void computeIntersections(
     glm::vec3* normals,
     glm::vec2* uvs,
     Triangle* triangles,
+    BVHNode* bvhNodes,
     LinearBVHNode* linearBVHNodes)
 {
     int path_index = blockIdx.x * blockDim.x + threadIdx.x;
@@ -371,18 +375,31 @@ __global__ void computeIntersections(
             } else if (geom.type == MESH)
             {
 #if USE_BVH
-                t = meshIntersectionTestWithLinearBVH(geom,
-                                                pathSegment.ray,
-                                                tmp_intersect,
-                                                tmp_normal,
-                                                tmp_uv,
-                                                tmp_outside,
-                                                vertices,
-                                                normals,
-                                                uvs,
-                                                triangles,
-                                                linearBVHNodes,
-                                                tmp_materialid);
+//                t = meshIntersectionTestWithLinearBVH(geom,
+//                                                pathSegment.ray,
+//                                                tmp_intersect,
+//                                                tmp_normal,
+//                                                tmp_uv,
+//                                                tmp_outside,
+//                                                vertices,
+//                                                normals,
+//                                                uvs,
+//                                                triangles,
+//                                                linearBVHNodes,
+//                                                tmp_materialid);
+
+                t = meshIntersectionTestWithBVH(geom,
+                                                      pathSegment.ray,
+                                                      tmp_intersect,
+                                                      tmp_normal,
+                                                      tmp_uv,
+                                                      tmp_outside,
+                                                      vertices,
+                                                      normals,
+                                                      uvs,
+                                                      triangles,
+                                                      bvhNodes,
+                                                      tmp_materialid);
 #else
                 t = meshIntersectionTest(geom,
                                          pathSegment.ray,
@@ -601,6 +618,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
             dev_normals,
             dev_uvs,
             dev_triangles,
+            dev_bvhNodes,
             dev_linearBVHNodes
         );
         checkCUDAError("trace one bounce");
@@ -630,9 +648,10 @@ void pathtrace(uchar4* pbo, int frame, int iter)
             dev_oidn_albedo,
             dev_oidn_normal);
 
-        // Stream compaction
+#if STREAM_COMPACTION
         dev_path_end = thrust::partition(thrust::device, dev_paths, dev_path_end, IsActive());
         num_paths = dev_path_end - dev_paths;
+#endif
 
         iterationComplete = depth > traceDepth || num_paths == 0;
 

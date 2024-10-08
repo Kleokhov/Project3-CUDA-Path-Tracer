@@ -115,3 +115,17 @@ __host__ __device__ float meshIntersectionTestWithLinearBVH(
         const Triangle* triangles,
         const LinearBVHNode* linearBVHNodes,
         int& materialId);
+
+__host__ __device__ float meshIntersectionTestWithBVH(
+        const Geom& geom,
+        const Ray& ray,
+        glm::vec3& intersectionPoint,
+        glm::vec3& normal,
+        glm::vec2& uv,
+        bool& outside,
+        const glm::vec3* vertices,
+        const glm::vec3* normals,
+        const glm::vec2* uvs,
+        const Triangle* triangles,
+        const BVHNode* bvhNodes,
+        int& materialId);

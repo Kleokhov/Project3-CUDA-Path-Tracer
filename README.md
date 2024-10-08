@@ -6,6 +6,8 @@ CUDA Path Tracer
 * Kevin Dong
 * Tested on: Windows 11, i7-10750H CPU @ 2.60GHz 2.59 GHz, RTX 2060
 
+![Top Image](img/cornell_obj_tree.2024-10-08_08-56-40z.5000samp.png)
+
 ## Summary
 This repository implements a ray tracer using CUDA. A ray tracer simulates the path of light rays as they interact with 
 objects in a scene. During the simulation, we first cast rays from the camera into the scene. These rays then interact 
@@ -86,19 +88,23 @@ A perfect specular sphere on the left, a glass sphere on the right, and refracti
 ![depth of field](img/cornell_dof.2024-10-07_03-12-24z.5000samp.png)
 
 ### glTF Mesh Loading
+![glTF mesh loading](img/cornell_gltf_duck.2024-10-08_07-34-22z.5000samp.png)
 
 ### obj Mesh Loading
-![obj mesh loading](img/cornell_obj_tree_chair.2024-10-06_08-11-17z.5000samp.png)
+![obj mesh loading](img/cornell_obj_tree_bigTree_chair.2024-10-08_06-44-46z.5000samp.png)
 
 ### OIDN Denoising
 
+| Before Denoising | After Denoising |
+|------------------|-----------------|
+| ![before denoising](img/cornell_obj_tree_chair.2024-10-06_08-11-17z.5000samp.png) | ![after denoising](img/cornell_obj_tree_chair.2024-10-08_09-36-29z.5000samp.png) |
 
 ## Performance Analysis
 We will now analyze the performance of the ray tracer with different features/optimizations enabled.
 
 ### Stream Compaction
-For stream compaction, we will compare the performance with and without stream compaction, as well as the performance 
-change with different kernel sizes.
+For stream compaction, we will compare the performance with and without stream compaction, the performance 
+change with different kernel sizes, and the performance change within a single iteration.
 
 ### Material Sorting
 For material sorting, we will compare the performance with and without material sorting.
@@ -127,4 +133,4 @@ website documentation/guide for libraries or videos/stackOverflow. Here is a det
 - [Russian Roulette (PBRTv4 14.5.4)](https://www.pbr-book.org/3ed-2018/Light_Transport_I_Surface_Reflection/Path_Tracing)
 - [BVH (PBRTv4 4.3)](https://pbr-book.org/3ed-2018/Primitives_and_Intersection_Acceleration/Bounding_Volume_Hierarchies#BVHAccel::recursiveBuild)
 - [Open Image Denoiser](https://www.openimagedenoise.org/)
-- 
+- [sample obj models](https://free3d.com/3d-models/obj)

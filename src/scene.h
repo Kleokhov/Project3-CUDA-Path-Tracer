@@ -12,7 +12,7 @@
 
 #define DEBUG 1
 
-#define MAX_DEPTH 10
+#define MAX_DEPTH 20
 
 using namespace std;
 

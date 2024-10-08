@@ -21,6 +21,9 @@
 // sort by material
 #define SORTMATERIAL 1
 
+// stream compaction
+#define STREAM_COMPACTION 1
+
 // Russian roulette
 #define RUSSIAN_ROULETTE 1
 #define MIN_BOUNCES 3
@@ -31,7 +34,7 @@
 
 // OIDA
 #define USE_OIDN 1
-#define DENOISE_INTERVAL 500
+#define DENOISE_INTERVAL 1000
 
 void InitDataContainer(GuiDataContainer* guiData);
 void pathtraceInit(Scene *scene);
