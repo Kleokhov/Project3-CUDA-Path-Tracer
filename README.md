@@ -6,7 +6,7 @@ CUDA Path Tracer
 * Kevin Dong
 * Tested on: Windows 11, i7-10750H CPU @ 2.60GHz 2.59 GHz, RTX 2060
 
-![Top Image](img/cornell_obj_tree.2024-10-08_08-56-40z.5000samp.png)
+![Top Image](img/cornell_obj_tree.2024-10-08_10-10-25z.5000samp.png)
 
 ## Summary
 This repository implements a ray tracer using CUDA. A ray tracer simulates the path of light rays as they interact with 
@@ -87,16 +87,16 @@ A perfect specular sphere on the left, a glass sphere on the right, and refracti
 ### Depth of Field
 ![depth of field](img/cornell_dof.2024-10-07_03-12-24z.5000samp.png)
 
-### glTF Mesh Loading
-![glTF mesh loading](img/cornell_gltf_duck.2024-10-08_07-34-22z.5000samp.png)
+### Mesh Loading
 
-### obj Mesh Loading
-![obj mesh loading](img/cornell_obj_tree_bigTree_chair.2024-10-08_06-44-46z.5000samp.png)
+| glTF                                                                          | obj                                                                                       |
+|-------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------|
+| ![glTF mesh loading](img/cornell_gltf_duck.2024-10-08_07-34-22z.5000samp.png) | ![obj mesh loading](img/cornell_obj_tree_bigTree_chair.2024-10-08_06-44-46z.5000samp.png) |
 
 ### OIDN Denoising
 
-| Before Denoising | After Denoising |
-|------------------|-----------------|
+| Before Denoising                                                                  | After Denoising                                                                  |
+|-----------------------------------------------------------------------------------|----------------------------------------------------------------------------------|
 | ![before denoising](img/cornell_obj_tree_chair.2024-10-06_08-11-17z.5000samp.png) | ![after denoising](img/cornell_obj_tree_chair.2024-10-08_09-36-29z.5000samp.png) |
 
 ## Performance Analysis
