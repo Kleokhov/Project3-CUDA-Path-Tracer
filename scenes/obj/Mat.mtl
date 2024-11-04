@@ -1,0 +1,8 @@
+newmtl Mat
+Ns 32
+d 1
+Tf 1 1 1
+illum 2
+Ka 0.5 0.5 0.5
+Kd 0.5 0.5 0.5
+Ks 0.5 0.5 0.5

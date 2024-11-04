@@ -1,0 +1,64 @@
+{
+    "Materials": {
+        "light": {
+            "TYPE": "Emitting",
+            "RGB": [1.0, 1.0, 1.0],
+            "EMITTANCE": 50.0
+        },
+        "diffuse_white": {
+            "TYPE": "Diffuse",
+            "RGB": [0.98, 0.98, 0.98]
+        }
+    },
+    "Camera": {
+        "RES": [800, 800],
+        "FOVY": 40.0,
+        "ITERATIONS": 5000,
+        "DEPTH": 8,
+        "FILE": "open_scene_test",
+        "EYE": [0.0, 0.0, 18.0],
+        "LOOKAT": [0.0, 15.0, 10.0],
+        "UP": [0.0, 1.0, 0.0]
+    },
+    "Objects": [
+        {
+            "TYPE": "cube",
+            "MATERIAL": "light",
+            "TRANS": [0.0, 30.0, 0.0],
+            "ROTAT": [0.0, 0.0, 0.0],
+            "SCALE": [15.0, 0.3, 15.0]
+        },
+        {
+            "TYPE": "cube",
+            "MATERIAL": "diffuse_white",
+            "TRANS": [0.0, 0.0, 0.0],
+            "ROTAT": [0.0, 0.0, 0.0],
+            "SCALE": [30.0, 0.1, 30.0]
+        },
+        {
+            "TYPE": "gltf",
+            "FILE": "gltf/Box/Box.gltf",
+            "MATERIAL": "diffuse_blue",
+            "TRANS": [0.0, 0.0, 0.0],
+            "ROTAT": [0.0, 0.0, 0.0],
+            "SCALE": [3.0, 3.0, 3.0]
+        },
+        {
+            "TYPE": "gltf",
+            "FILE": "gltf/Duck/Duck.gltf",
+            "MATERIAL": "diffuse_red",
+
+            "TRANS": [-10.0, 0.0, -1.0],
+            "ROTAT": [0.0, 0.0, 0.0],
+            "SCALE": [0.02, 0.02, 0.02]
+        },
+        {
+            "TYPE":"obj",
+            "FILE":"obj/deer.obj",
+            "MATERIAL":"light",
+            "TRANS": [ 2.0, 10.0, -2.0 ],
+            "ROTAT": [ 0.0, 0.0, 0.0 ],
+            "SCALE": [ 0.01, 0.01, 0.01 ]
+        }
+    ]
+}

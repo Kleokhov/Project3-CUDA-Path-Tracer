@@ -5,7 +5,7 @@
         {
             "TYPE":"Emitting",
             "RGB":[1.0, 1.0, 1.0],
-            "EMITTANCE":5.0
+            "EMITTANCE":8.0
         },
         "diffuse_white":
         {
@@ -26,6 +26,16 @@
         {
             "TYPE":"Diffuse",
             "RGB":[0.35, 0.35, 0.85]
+        },
+        "diffuse_orange":
+        {
+            "TYPE":"Diffuse",
+            "RGB":[0.85, 0.35, 0.35]
+        },
+        "diffuse_yellow":
+        {
+            "TYPE":"Diffuse",
+            "RGB":[0.85, 0.85, 0.35]
         },
         "specular_white":
         {
@@ -91,11 +101,27 @@
         },
         {
             "TYPE": "gltf",
-            "FILE": "gltf/Duck.gltf",
+            "FILE": "gltf/Duck/Duck.gltf",
             "MATERIAL": "diffuse_blue",
-            "TRANS": [-1.0, 1.0, -1.0],
+            "TRANS": [-2.5, 0.0, -1.0],
             "ROTAT": [0.0, 0.0, 0.0],
             "SCALE": [0.02, 0.02, 0.02]
+        },
+        {
+            "TYPE": "gltf",
+            "FILE": "gltf/Avocado/Avocado.gltf",
+            "MATERIAL": "diffuse_yellow",
+            "TRANS": [2.5, 0.0, -1.0],
+            "ROTAT": [0.0, 150.0, 0.0],
+            "SCALE": [100.0, 100.0, 100.0]
+        },
+        {
+            "TYPE": "gltf",
+            "FILE": "gltf/BarramundiFish/BarramundiFish.gltf",
+            "MATERIAL": "diffuse_green",
+            "TRANS": [0.0, 0.0, 2.5],
+            "ROTAT": [90.0, 90.0, 270.0],
+            "SCALE": [10.0, 10.0, 10.0]
         }
     ]
 }
